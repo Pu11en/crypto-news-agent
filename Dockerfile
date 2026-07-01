@@ -1,21 +1,29 @@
 # Derived from NousResearch/hermes-agent.
-# Adds our two plugins on top of the base image and pre-seeds
-# the Hermes home with our provider/toolset config.
-#
-# The base image is configurable via --build-arg HERMES_BASE=...
-# If the published image isn't at the registry path below, build Hermes
-# locally (see README.md) and pass the local tag.
+# Builds hermes-agent from source (no pre-built image needed),
+# then overlays our two plugins and pre-seeds the Hermes config.
 
-ARG HERMES_BASE=hermes-agent:latest
-FROM ${HERMES_BASE}
+FROM python:3.12-slim
 
 USER root
 
-# Dependencies the plugin needs. Fail loudly if any install fails.
+# System deps needed by hermes-agent and our plugins
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        gcc \
+        libffi-dev \
+        libssl-dev \
+        && rm -rf /var/lib/apt/lists/*
+
+# Clone hermes-agent and install it
+RUN git clone --depth 1 https://github.com/NousResearch/hermes-agent.git /opt/hermes-agent
+WORKDIR /opt/hermes-agent
+RUN pip install --no-cache-dir -e .
+
+# Plugin dependencies
 RUN pip install --no-cache-dir \
-    "sqlalchemy>=2.0" \
-    "requests>=2.31" \
-    "httpx>=0.27"
+        "sqlalchemy>=2.0" \
+        "requests>=2.31" \
+        "httpx>=0.27"
 
 # Plugin paths
 ENV HERMES_HOME=/data/.hermes
@@ -44,6 +52,4 @@ for p in ['plugins/model-providers/bai/__init__.py', 'plugins/crypto-intel/__ini
         print(f'WARN missing {p}')
 "
 
-USER hermes
-
-ENTRYPOINT ["/init", "/opt/hermes/docker/main-wrapper.sh"]
+ENTRYPOINT ["python", "-m", "hermes_agent"]
