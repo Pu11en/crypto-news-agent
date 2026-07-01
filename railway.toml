@@ -1,0 +1,36 @@
+# Railway service config
+# https://docs.railway.app/reference/config-as-code
+
+build:
+  dockerfile: Dockerfile
+
+deploy:
+  healthcheckPath: /
+  healthcheckTimeout: 300
+  restartPolicyType: on_failure
+  restartPolicyMaxRetries: 3
+
+# Persistent volume for the DB and Hermes home
+volumes:
+  - mount: /data
+
+# Environment variables (set real values in the Railway dashboard;
+# rotate the BAI_API_KEY that was pasted in chat).
+variables:
+  # --- b.ai (DeepSeek V4 Pro) ---
+  BAI_API_KEY:                "REPLACE_ME"
+  LLM_MODEL:                  "deepseek-v4-pro"
+  LLM_PROVIDER:               "bai"
+
+  # --- Xquik (X/Twitter data) ---
+  XQUIK_API_KEY:              "REPLACE_ME"
+
+  # --- Telegram ---
+  TELEGRAM_BOT_TOKEN:         "REPLACE_ME"
+  TELEGRAM_ALLOWED_USERS:     "REPLACE_ME"   # comma-separated numeric user IDs
+  TELEGRAM_HOME_CHANNEL:      "REPLACE_ME"   # numeric chat id for notifications
+
+  # --- Pipeline tuning (optional) ---
+  PIPELINE_FRESHNESS_HOURS:   "48"
+  PIPELINE_MAX_PER_ACCOUNT:   "20"
+  PIPELINE_RUN_BUDGET:        "1500"

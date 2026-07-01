@@ -1,0 +1,32 @@
+# Hermes Agent config for crypto-intel-pipeline-v2.
+# This file is pre-seeded at /data/.hermes/config.yaml in the container.
+
+# --- Provider & model ---------------------------------------------------------
+provider: bai
+model: deepseek-v4-pro
+
+# Reasoning MUST be disabled for DeepSeek V4 Pro. With thinking ON the
+# model returns reasoning_content, but Hermes' tool-routing layer does
+# not echo it back on the next turn → HTTP 400 from the b.ai gateway.
+reasoning:
+  enabled: false
+  effort: low
+
+# --- Toolsets (each plugin maps to one toolset) -------------------------------
+toolsets:
+  - telegram        # bundled platform
+  - crypto-intel    # our pipeline plugin
+
+# --- Plugin overrides ---------------------------------------------------------
+plugins:
+  model-providers:
+    - bai            # forces user plugin to load
+  backend:
+    - crypto-intel
+
+# --- Telegram security (allowlist gates who can talk to the bot) --------------
+telegram:
+  allowed_users: ${TELEGRAM_ALLOWED_USERS}      # comma-separated numeric user IDs
+  home_channel: ${TELEGRAM_HOME_CHANNEL}        # numeric chat id for notifications
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  pair_with: crypto-intel                       # default toolset for this channel

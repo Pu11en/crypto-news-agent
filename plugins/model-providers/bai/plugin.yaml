@@ -1,0 +1,5 @@
+name: bai-provider
+kind: model-provider
+version: 1.0.0
+description: "B.AI — DeepSeek V4 Pro via https://api.b.ai/v1"
+author: crypto-intel-pipeline-v2
