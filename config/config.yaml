@@ -1,5 +1,9 @@
 # Hermes Agent config for crypto-intel-pipeline-v2.
 # This file is pre-seeded at /data/.hermes/config.yaml in the container.
+#
+# Env var interpolation: Hermes reads these values from the OS environment
+# at startup, NOT via shell expansion of the YAML file. The literal strings
+# ${...} below are reference names — set the real values in Railway.
 
 # --- Provider & model ---------------------------------------------------------
 provider: bai
@@ -24,9 +28,12 @@ plugins:
   backend:
     - crypto-intel
 
-# --- Telegram security (allowlist gates who can talk to the bot) --------------
+# --- Telegram -----------------------------------------------------------------
+# Telegram's allowlist and home channel are read from env vars by Hermes
+# at runtime; see BAI_API_KEY / TELEGRAM_BOT_TOKEN / TELEGRAM_ALLOWED_USERS
+# / TELEGRAM_HOME_CHANNEL in railway.toml.
 telegram:
-  allowed_users: ${TELEGRAM_ALLOWED_USERS}      # comma-separated numeric user IDs
-  home_channel: ${TELEGRAM_HOME_CHANNEL}        # numeric chat id for notifications
-  bot_token: ${TELEGRAM_BOT_TOKEN}
-  pair_with: crypto-intel                       # default toolset for this channel
+  bot_token_env: TELEGRAM_BOT_TOKEN
+  allowed_users_env: TELEGRAM_ALLOWED_USERS
+  home_channel_env: TELEGRAM_HOME_CHANNEL
+  pair_with: crypto-intel

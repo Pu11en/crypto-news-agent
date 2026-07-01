@@ -1,18 +1,21 @@
-# Derived from NousResearch/hermes-agent's official Dockerfile.
+# Derived from NousResearch/hermes-agent.
 # Adds our two plugins on top of the base image and pre-seeds
 # the Hermes home with our provider/toolset config.
+#
+# The base image is configurable via --build-arg HERMES_BASE=...
+# If the published image isn't at the registry path below, build Hermes
+# locally (see README.md) and pass the local tag.
 
-ARG HERMES_BASE=ghcr.io/nousresearch/hermes-agent:latest
+ARG HERMES_BASE=hermes-agent:latest
 FROM ${HERMES_BASE}
 
 USER root
 
-# Dependencies the plugin needs (already in base, but harmless to assert)
+# Dependencies the plugin needs. Fail loudly if any install fails.
 RUN pip install --no-cache-dir \
     "sqlalchemy>=2.0" \
     "requests>=2.31" \
-    "httpx>=0.27" \
-    || true
+    "httpx>=0.27"
 
 # Plugin paths
 ENV HERMES_HOME=/data/.hermes
@@ -28,11 +31,18 @@ COPY plugins/crypto-intel/          ${HERMES_HOME}/plugins/crypto-intel/
 # Pre-seed Hermes config (provider + model + toolset wiring)
 COPY config/config.yaml             ${HERMES_HOME}/config.yaml
 
-# Sanity check: ensure plugins import without error
-RUN python -c "import ast,os; \
-    for p in ['plugins/model-providers/bai/__init__.py','plugins/crypto-intel/__init__.py']: \
-        ast.parse(open(os.path.join(os.environ.get('HERMES_HOME','/data/.hermes'),p)).read())" \
-    || true
+# Sanity check: ensure plugin files at least parse
+RUN python -c "
+import ast, os
+home = os.environ.get('HERMES_HOME', '/data/.hermes')
+for p in ['plugins/model-providers/bai/__init__.py', 'plugins/crypto-intel/__init__.py']:
+    full = os.path.join(home, p)
+    if os.path.exists(full):
+        ast.parse(open(full).read())
+        print(f'OK {p}')
+    else:
+        print(f'WARN missing {p}')
+"
 
 USER hermes
 

@@ -94,7 +94,6 @@ def get_engine():
             url,
             connect_args={"check_same_thread": False},
             pool_pre_ping=True,
-            poolclass=create_engine.__doc__ and None,
         )
 
         @event.listens_for(_engine, "connect")

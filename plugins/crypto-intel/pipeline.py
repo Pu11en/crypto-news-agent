@@ -47,15 +47,25 @@ def run_pipeline(
     freshness_hours: int = DEFAULT_FRESHNESS_HOURS,
     max_tweets_per_account: int = DEFAULT_MAX_TWEETS_PER_ACCOUNT,
     per_run_budget: int = DEFAULT_PER_RUN_BUDGET,
+    run_id: int | None = None,
 ) -> int:
     """Run synchronously in the calling thread. Returns the scrape_runs.id."""
     seed_accounts()
-    session = get_session()
-    run = ScrapeRun(status="running", account_count=0, tweet_count=0, scored_count=0, error_count=0)
-    session.add(run)
-    session.commit()
-    run_id = run.id
-    session.close()
+    if run_id is None:
+        session = get_session()
+        run = ScrapeRun(status="running", account_count=0, tweet_count=0, scored_count=0, error_count=0)
+        session.add(run)
+        session.commit()
+        run_id = run.id
+        session.close()
+    else:
+        session = get_session()
+        run = session.query(ScrapeRun).filter(ScrapeRun.id == run_id).first()
+        if run is None:
+            run = ScrapeRun(id=run_id, status="running", account_count=0, tweet_count=0, scored_count=0, error_count=0)
+            session.add(run)
+            session.commit()
+        session.close()
 
     def _emit(payload: dict) -> None:
         if progress_cb:
@@ -181,6 +191,7 @@ def start_pipeline_background(
             xquik_api_key=xquik_api_key,
             bai_api_key=bai_api_key,
             progress_cb=progress_cb,
+            run_id=run_id,
             **kwargs,
         )
 

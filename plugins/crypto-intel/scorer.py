@@ -152,8 +152,10 @@ class BaiScorer:
             "stream": False,
         }
         # CRITICAL: disable DeepSeek V4 thinking mode at request level.
+        # reasoning_effort is intentionally NOT set — when thinking is
+        # disabled, the effort field is ignored and including it can
+        # confuse the API gateway.
         body["extra_body"] = {"thinking": {"type": "disabled"}}
-        body["reasoning_effort"] = "low"
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
