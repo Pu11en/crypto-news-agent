@@ -1,4 +1,4 @@
-"""Xquik API client — fetches recent tweets for a list of accounts.
+"""Xquik API client : fetches recent tweets for a list of accounts.
 
 Reconstructed from the project's git history (the original fetcher that
 powered the crypto-intel pipeline). Auth is an x-api-key header; the
@@ -34,7 +34,7 @@ class RawTweet:
     url: str | None = None
 
 
-# Xquik / Twitter return dates in a variety of formats — try them all.
+# Xquik / Twitter return dates in a variety of formats : try them all.
 _DATE_FORMATS = [
     "%Y-%m-%dT%H:%M:%S.%fZ",
     "%Y-%m-%dT%H:%M:%SZ",
@@ -111,12 +111,12 @@ class XquikClient:
                 backoff *= 2
                 continue
             if resp.status_code == 401:
-                raise XquikAuthError("Xquik 401 — check XQUIK_API_KEY")
+                raise XquikAuthError("Xquik 401 : check XQUIK_API_KEY")
             if resp.status_code == 402:
-                raise XquikAuthError("Xquik 402 — billing/credits required")
+                raise XquikAuthError("Xquik 402 : billing/credits required")
             if 500 <= resp.status_code < 600:
                 last_err = f"HTTP {resp.status_code}"
-                log.warning("xquik %s — backing off", resp.status_code)
+                log.warning("xquik %s : backing off", resp.status_code)
                 time.sleep(backoff)
                 backoff *= 2
                 continue
@@ -157,7 +157,7 @@ class XquikClient:
     def get_account(self) -> dict:
         """Fetch the full account summary (includes creditInfo + monitorBilling).
 
-        Heavier than get_credits() — use for the detailed /account view.
+        Heavier than get_credits() : use for the detailed /account view.
         """
         return self._request("GET", "/account")
 

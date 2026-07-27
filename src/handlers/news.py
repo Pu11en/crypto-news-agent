@@ -1,4 +1,4 @@
-"""The /news flow — scrape → curate → pick → script.
+"""The /news flow : scrape → curate → pick → script.
 
 State machine (session.state drives routing in chat.py):
     idle → (run /news) → awaiting_pick → (user picks) → script_draft → (/done) → idle
@@ -16,19 +16,20 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 import db
 import prompts
 from accounts import load_accounts
 from config import Settings
 from handlers import session as sess
-from llm import GLMClient, LLMError
+from llm import LLMClient, LLMError
+from video import jobs
 from xquik import RawTweet, XquikClient, XquikError
 
 log = logging.getLogger("agent.news")
 
-# Cap concurrency on the scrape — Xquik tolerates ~10 req/s.
+# Cap concurrency on the scrape : Xquik tolerates ~10 req/s.
 _SCRAPE_WORKERS = 8
 SCRIPT_BANNER = "📝 *Script draft* (v%d)\n\n%s\n\n_Talk to me to refine it, or_ /done _to save,_ /cancel _to discard._"
 
@@ -36,7 +37,7 @@ SCRIPT_BANNER = "📝 *Script draft* (v%d)\n\n%s\n\n_Talk to me to refine it, or
 def register(
     app: Application,
     settings: Settings,
-    llm: GLMClient,
+    llm: LLMClient,
     user_filter,
 ) -> None:
     app.add_handler(
@@ -53,12 +54,12 @@ def register(
 async def _start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Crypto news agent ready.\n\n"
-        "/news — scrape Twitter and build a video script\n"
-        "/done — save the current script\n"
-        "/cancel — discard and exit\n"
-        "/credits — check Xquik credit balance\n"
-        "/account — full Xquik account summary\n"
-        "/help — this message\n\n"
+        "/news : scrape Twitter and build a video script\n"
+        "/done : save the current script\n"
+        "/cancel : discard and exit\n"
+        "/credits : check Xquik credit balance\n"
+        "/account : full Xquik account summary\n"
+        "/help : this message\n\n"
         "Or just talk to me normally."
     )
 
@@ -71,7 +72,7 @@ async def _news(
     update: Update,
     _: ContextTypes.DEFAULT_TYPE,
     settings: Settings,
-    llm: GLMClient,
+    llm: LLMClient,
 ) -> None:
     user_id = update.effective_user.id
     # Lock so a second /news can't collide with a running one.
@@ -119,7 +120,7 @@ async def _news(
 
 
 def _scrape_and_curate(
-    settings: Settings, llm: GLMClient, user_id: int
+    settings: Settings, llm: LLMClient, user_id: int
 ) -> dict:
     """Blocking: fetch tweets, store them, ask the LLM to curate. Returns run meta."""
     run_id = uuid.uuid4().hex[:12]
@@ -139,7 +140,7 @@ def _scrape_and_curate(
         except XquikError as e:
             errors.append(f"{acct.username}: {e}")
             return []
-        except Exception as e:  # noqa: BLE001 — don't let one account kill the run
+        except Exception as e:  # noqa: BLE001 : don't let one account kill the run
             errors.append(f"{acct.username}: {e}")
             return []
 
@@ -173,7 +174,7 @@ def _scrape_and_curate(
     if not tweets:
         return run_meta
 
-    # Curate. Cap input size to avoid blowing context — newest first, and trim
+    # Curate. Cap input size to avoid blowing context : newest first, and trim
     # very long tweets.
     trimmed = sorted(
         tweets,
@@ -185,6 +186,13 @@ def _scrape_and_curate(
     )
     curated = llm.curate(prompts.CURATE_SYSTEM, prompt)
     stories = curated.get("stories", []) if isinstance(curated, dict) else []
+
+    # Enrich each story with clickable source tweet URLs.
+    url_map = {t.tweet_id: t.url for t in tweets if t.url}
+    for story in stories:
+        story["source_urls"] = [
+            url_map[tid] for tid in story.get("tweet_ids", []) if tid in url_map
+        ]
 
     run_meta["stories"] = stories
     return run_meta
@@ -267,8 +275,12 @@ def _format_top_stories(
         headline = s.get("headline", "")
         summary = s.get("summary", "")
         score = s.get("score", 0)
+        source_urls = s.get("source_urls", [])
         lines.append(f"*{rank}. {headline}*")
         lines.append(f"   {summary}")
+        if source_urls:
+            links = " · ".join(f"[source]({u})" for u in source_urls[:3])
+            lines.append(f"   🔗 {links}")
         lines.append(f"   _newsworthiness: {score}_\n")
     lines.append(
         "Reply with story numbers (e.g. `1,3,5`) or `auto` to use all of them."
@@ -307,7 +319,7 @@ def parse_pick(text: str, num_available: int) -> list[int] | None:
 
 def write_initial_script(
     settings: Settings,
-    llm: GLMClient,
+    llm: LLMClient,
     user_id: int,
     chosen_ranks: list[int],
 ) -> str:
@@ -385,6 +397,30 @@ def finalize_script(user_id: int) -> str | None:
     body = user_sess.current_script
     sess.reset(user_id)
     return body
+
+
+def approve_script(user_id: int, chat_id: int) -> tuple[db.Script, db.VideoJob]:
+    """Lock the latest draft and create the idempotent Telegram video job."""
+    user_sess = sess.load(user_id)
+    if not user_sess.current_script:
+        raise ValueError("No draft script is available to approve")
+    factory = db.session()
+    with factory() as s:
+        latest = (
+            s.query(db.Script)
+            .filter(db.Script.session_id == str(user_id))
+            .order_by(db.Script.version.desc())
+            .first()
+        )
+        if latest is None:
+            raise ValueError("The current draft has not been saved")
+        latest.is_final = True
+        s.commit()
+        s.refresh(latest)
+        script_id = latest.id
+    job = jobs.create_for_script(user_id=user_id, chat_id=chat_id, script_id=script_id)
+    sess.set_state(user_id, sess.AWAITING_VIDEO)
+    return latest, job
 
 
 def script_banner(body: str, version: int) -> str:

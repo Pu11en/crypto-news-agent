@@ -8,21 +8,21 @@ per-user session state that drives the /news flow's state machine.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import (
+    Boolean,
     JSON,
-    Column,
+
     DateTime,
     Integer,
     String,
     Text,
     create_engine,
-    select,
+
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
@@ -86,7 +86,7 @@ class Script(Base):
 
 
 class Session(Base):
-    """Per-user conversation state — drives the /news state machine."""
+    """Per-user conversation state : drives the /news state machine."""
 
     __tablename__ = "sessions"
 
@@ -108,7 +108,7 @@ class Session(Base):
 
 
 class Run(Base):
-    """A single /news scrape run — for stats and debugging."""
+    """A single /news scrape run : for stats and debugging."""
 
     __tablename__ = "runs"
 
@@ -122,6 +122,42 @@ class Run(Base):
     tweets_fetched: Mapped[int] = mapped_column(Integer, default=0)
     accounts_hit: Mapped[int] = mapped_column(Integer, default=0)
     errors: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+
+class VideoJob(Base):
+    """Persistent state for one Telegram talking-head video job."""
+
+    __tablename__ = "video_jobs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    chat_id: Mapped[int] = mapped_column(Integer, index=True)
+    script_id: Mapped[int] = mapped_column(Integer, index=True)
+    state: Mapped[str] = mapped_column(String, index=True)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    telegram_source_file_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    telegram_source_kind: Mapped[str | None] = mapped_column(String, nullable=True)
+    source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transcript_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_bundle_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    storyboard_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    composition_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    preview_paths: Mapped[list[str]] = mapped_column(JSON, default=list)
+    output_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    captions_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    status_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    current_stage: Mapped[str | None] = mapped_column(String, nullable=True)
+    failed_stage: Mapped[str | None] = mapped_column(String, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 _engine = None
@@ -143,7 +179,7 @@ def init_engine(db_path: str):
     _engine = create_engine(
         url,
         # Single async bot process, but background scrape threads hit the DB
-        # too — disable the same-thread check and let SQLite serialize.
+        # too : disable the same-thread check and let SQLite serialize.
         connect_args={"check_same_thread": False},
         future=True,
     )
@@ -164,7 +200,7 @@ def init_engine(db_path: str):
 def session() -> sessionmaker:
     """Return the session factory. init_engine() must have run first."""
     if _SessionLocal is None:
-        raise RuntimeError("DB not initialised — call init_engine() first")
+        raise RuntimeError("DB not initialised : call init_engine() first")
     return _SessionLocal
 
 

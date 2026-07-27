@@ -1,9 +1,10 @@
 """Per-user session state helpers.
 
 A session row in the DB tracks where the user is in the /news flow:
-    idle            — no active flow; free chat
-    awaiting_pick   — top-5 stories shown, waiting for "1,3,5" / "auto" / "all"
-    script_draft    — a script exists; messages refine it until /done or /cancel
+    idle            : no active flow; free chat
+    awaiting_pick   : top-5 stories shown, waiting for "1,3,5" / "auto" / "all"
+    script_draft    - a script exists; messages refine it until /done or /cancel
+    awaiting_video  - approved script is locked; waiting for an OBS upload
 
 These helpers wrap the DB row so handlers don't touch SQLAlchemy directly.
 """
@@ -15,6 +16,8 @@ from db import Session, get_or_create_session, session as sessionmaker
 IDLE = "idle"
 AWAITING_PICK = "awaiting_pick"
 SCRIPT_DRAFT = "script_draft"
+AWAITING_VIDEO = "awaiting_video"
+STORYBOARD_REVISION = "storyboard_revision"
 
 
 def load(user_id: int) -> Session:
@@ -72,7 +75,7 @@ def append_history(user_id: int, role: str, content: str) -> None:
     sess = load(user_id)
     hist = list(sess.history or [])
     hist.append({"role": role, "content": content})
-    # Keep the rolling window small — last 12 turns.
+    # Keep the rolling window small : last 12 turns.
     sess.history = hist[-12:]
     _save(sess)
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
@@ -19,13 +20,33 @@ import prompts
 from config import Settings
 from handlers import session as sess
 from handlers import news
-from llm import GLMClient, LLMError
+from llm import LLMClient, LLMError
 
 log = logging.getLogger("agent.chat")
 
+_APPROVAL_PHRASES = (
+    "looks good",
+    "look good",
+    "perfect",
+    "approved",
+    "approve it",
+    "use this",
+    "this is the one",
+    "ready to record",
+)
+_NEGATING_WORDS = ("not ", "almost ", "but ", "change ", "fix ", "revise ")
+
+
+def is_script_approval(text: str) -> bool:
+    """Recognize explicit approval while avoiding common revision phrases."""
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
+    if any(word in normalized for word in _NEGATING_WORDS):
+        return False
+    return any(phrase in normalized for phrase in _APPROVAL_PHRASES)
+
 
 def register(
-    app: Application, settings: Settings, llm: GLMClient, user_filter
+    app: Application, settings: Settings, llm: LLMClient, user_filter
 ) -> None:
     app.add_handler(
         MessageHandler(
@@ -39,7 +60,7 @@ async def _route(
     update: Update,
     _: ContextTypes.DEFAULT_TYPE,
     settings: Settings,
-    llm: GLMClient,
+    llm: LLMClient,
 ) -> None:
     user_id = update.effective_user.id
     text = update.message.text or ""
@@ -48,7 +69,18 @@ async def _route(
     if user_sess.state == sess.AWAITING_PICK:
         await _handle_pick(update, settings, llm, user_sess, text)
     elif user_sess.state == sess.SCRIPT_DRAFT:
-        await _handle_refine(update, llm, user_sess, text)
+        if is_script_approval(text):
+            await _handle_approval(update)
+        else:
+            await _handle_refine(update, llm, user_sess, text)
+    elif user_sess.state == sess.STORYBOARD_REVISION:
+        from handlers import video
+
+        await video.handle_revision_text(update, _, settings, llm)
+    elif user_sess.state == sess.AWAITING_VIDEO:
+        await update.message.reply_text(
+            "This video job is active. Upload the OBS MP4 or use the buttons on the current status message."
+        )
     else:
         await _handle_chat(update, llm, user_sess, text)
 
@@ -58,7 +90,7 @@ async def _route(
 async def _handle_pick(
     update: Update,
     settings: Settings,
-    llm: GLMClient,
+    llm: LLMClient,
     user_sess,
     text: str,
 ) -> None:
@@ -86,7 +118,7 @@ async def _handle_pick(
         return
 
     await update.message.reply_text(
-        "Writing the script — one moment…"
+        "Writing the script : one moment…"
     )
     try:
         body = await asyncio.to_thread(
@@ -100,13 +132,29 @@ async def _handle_pick(
     await update.message.reply_text(
         news.script_banner(body, user_sess.script_version),
         parse_mode="Markdown",
+        reply_markup=__import__("handlers.video", fromlist=["script_keyboard"]).script_keyboard(),
     )
 
 
 # ---------------------------------------------------------------- script_draft
 
+async def _handle_approval(update: Update) -> None:
+    try:
+        script, _job = news.approve_script(
+            update.effective_user.id, update.effective_chat.id
+        )
+    except ValueError as exc:
+        await update.message.reply_text(f"Could not approve the script: {exc}")
+        return
+    await update.message.reply_text(
+        "✅ Script approved and locked.\n\n"
+        f"{script.body}\n\n"
+        "Record yourself reading it in OBS as a 16:9 MP4, then upload the file here."
+    )
+
+
 async def _handle_refine(
-    update: Update, llm: GLMClient, user_sess, text: str
+    update: Update, llm: LLMClient, user_sess, text: str
 ) -> None:
     user_id = update.effective_user.id
     current = user_sess.current_script or ""
@@ -130,12 +178,13 @@ async def _handle_refine(
     await update.message.reply_text(
         news.script_banner(new_body, user_sess.script_version),
         parse_mode="Markdown",
+        reply_markup=__import__("handlers.video", fromlist=["script_keyboard"]).script_keyboard(),
     )
 
 
 # ---------------------------------------------------------------- idle / general chat
 
-async def _handle_chat(update: Update, llm: GLMClient, user_sess, text: str) -> None:
+async def _handle_chat(update: Update, llm: LLMClient, user_sess, text: str) -> None:
     user_id = update.effective_user.id
     history = list(user_sess.history or [])
 

@@ -7,7 +7,7 @@ Wires up:
   - all handlers (commands + free-text router)
 
 Run locally:  python src/bot.py
-Run in prod:  same — the Dockerfile CMD is `python src/bot.py`.
+Run in prod:  same : the Dockerfile CMD is `python src/bot.py`.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import logging
 import os
 import sys
 
-# When launched as `python src/bot.py`, `src` isn't on sys.path by default —
+# When launched as `python src/bot.py`, `src` isn't on sys.path by default :
 # add it so `import config`, `import db`, etc. resolve.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -34,12 +34,12 @@ from telegram.ext import (  # noqa: E402
 
 import config  # noqa: E402
 import db  # noqa: E402
-from handlers import chat, commands, credits, news  # noqa: E402
-from llm import GLMClient  # noqa: E402
+from handlers import chat, commands, credits, news, video  # noqa: E402
+from llm import LLMClient  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+    format="%(asctime)s %(levelname)s %(name)s : %(message)s",
 )
 # Quiet the chatty libs.
 for noisy in ("httpx", "telegram", "urllib3", "openai"):
@@ -54,14 +54,14 @@ def main() -> None:
     # Initialise DB before the LLM, since handlers depend on it.
     db.init_engine(settings.db_path)
 
-    llm = GLMClient(settings)
+    llm = LLMClient(settings)
 
     app: Application = (
         ApplicationBuilder().token(settings.telegram_bot_token).build()
     )
 
     # Framework-level allowlist: build a user filter once and pass it to every
-    # handler. Updates from non-allowlisted users never reach our code — the
+    # handler. Updates from non-allowlisted users never reach our code : the
     # Application drops them at the filter stage.
     #
     # If ALLOWED_USER_IDS is empty, the bot is OPEN TO EVERYONE (any Telegram
@@ -72,13 +72,14 @@ def main() -> None:
     else:
         user_filter = filters.ALL
         log.warning(
-            "ALLOWED_USER_IDS is empty — bot is OPEN TO EVERYONE. "
+            "ALLOWED_USER_IDS is empty : bot is OPEN TO EVERYONE. "
             "Anyone who finds @%s can trigger scrapes.",
             "Jcryptonewsbot",
         )
 
     news.register(app, settings, llm, user_filter)
     commands.register(app, user_filter)
+    video.register(app, settings, llm, user_filter)
     chat.register(app, settings, llm, user_filter)
     credits.register(app, settings, user_filter)
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from datetime import datetime, timezone
+
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -24,7 +24,7 @@ import prompts  # noqa: E402
 from config import load  # noqa: E402
 from handlers import news, session as sess  # noqa: E402
 from llm import GLMClient  # noqa: E402
-from xquik import XquikClient  # noqa: E402
+
 
 
 def _fake_update(user_id: int, text: str) -> SimpleNamespace:

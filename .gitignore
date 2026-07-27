@@ -1,5 +1,7 @@
 # Secrets
 .env
+.env.bak*
+.env.local.*.bak
 *.key
 *.pem
 
@@ -32,3 +34,6 @@ Thumbs.db
 
 # ZCode local artifacts
 .zcode/
+
+# Hermes local attachments
+.hermes/desktop-attachments/

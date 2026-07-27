@@ -1,4 +1,4 @@
-"""Central configuration — all settings come from environment variables.
+"""Central configuration : all settings come from environment variables.
 
 Loaded once at startup. Raises if anything required is missing or unparsable
 so misconfig fails fast at boot instead of mid-request.
@@ -31,10 +31,14 @@ def _user_ids(name: str) -> list[int]:
 
 @dataclass(frozen=True)
 class Settings:
-    # LLM
+    # LLM : primary (z.ai GLM)
     zai_api_key: str
     zai_base_url: str
     zai_model: str
+    # LLM : fallback (DeepSeek)
+    deepseek_api_key: str
+    deepseek_base_url: str
+    deepseek_model: str
     # Scraper
     xquik_api_key: str
     scrape_hours: int
@@ -44,6 +48,9 @@ class Settings:
     allowed_user_ids: tuple[int, ...]
     # Storage
     db_path: str
+    video_work_dir: str = "data/video-jobs"
+    video_max_seconds: int = 90
+    whisper_model: str = "small.en"
 
 
 def load() -> Settings:
@@ -53,10 +60,18 @@ def load() -> Settings:
             "ZAI_BASE_URL", "https://api.z.ai/api/coding/paas/v4"
         ).rstrip("/"),
         zai_model=os.environ.get("ZAI_MODEL", "glm-4.6"),
+        deepseek_api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
+        deepseek_base_url=os.environ.get(
+            "DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"
+        ).rstrip("/"),
+        deepseek_model=os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
         xquik_api_key=_required("XQUIK_API_KEY"),
         scrape_hours=_int("SCRAPE_HOURS", 24),
         max_tweets_per_account=_int("MAX_TWEETS_PER_ACCOUNT", 20),
         telegram_bot_token=_required("TELEGRAM_BOT_TOKEN"),
         allowed_user_ids=tuple(_user_ids("ALLOWED_USER_IDS")),
         db_path=os.environ.get("DB_PATH", "/data/agent.db"),
+        video_work_dir=os.environ.get("VIDEO_WORK_DIR", "data/video-jobs"),
+        video_max_seconds=_int("VIDEO_MAX_SECONDS", 90),
+        whisper_model=os.environ.get("WHISPER_MODEL", "small.en"),
     )

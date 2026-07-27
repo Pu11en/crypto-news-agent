@@ -1,1 +1,1 @@
-"""Handler package — Telegram update handlers."""
+"""Handler package : Telegram update handlers."""

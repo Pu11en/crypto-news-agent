@@ -1,7 +1,7 @@
 """Credit / account commands.
 
-/credits — quick Xquik balance check (lightweight call)
-/account — full account summary including lifetime stats + monitor billing
+/credits : quick Xquik balance check (lightweight call)
+/account : full account summary including lifetime stats + monitor billing
 """
 
 from __future__ import annotations
@@ -19,12 +19,27 @@ log = logging.getLogger("agent.credits")
 
 
 def register(app: Application, settings: Settings, user_filter) -> None:
-    app.add_handler(CommandHandler("credits", _credits, filters=user_filter))
-    app.add_handler(CommandHandler("account", _account, filters=user_filter))
+    app.add_handler(
+        CommandHandler(
+            "credits",
+            lambda u, c: _credits(u, c, settings),
+            filters=user_filter,
+        )
+    )
+    app.add_handler(
+        CommandHandler(
+            "account",
+            lambda u, c: _account(u, c, settings),
+            filters=user_filter,
+        )
+    )
 
 
-async def _credits(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    settings: Settings = ctx.application.bot_data["settings"]
+async def _credits(
+    update: Update,
+    _: ContextTypes.DEFAULT_TYPE,
+    settings: Settings,
+) -> None:
     client = XquikClient(api_key=settings.xquik_api_key)
     try:
         data = await asyncio.to_thread(client.get_credits)
@@ -54,8 +69,11 @@ async def _credits(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-async def _account(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    settings: Settings = ctx.application.bot_data["settings"]
+async def _account(
+    update: Update,
+    _: ContextTypes.DEFAULT_TYPE,
+    settings: Settings,
+) -> None:
     client = XquikClient(api_key=settings.xquik_api_key)
     try:
         data = await asyncio.to_thread(client.get_account)
@@ -97,9 +115,9 @@ async def _account(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             try:
                 hours_left = float(balance) / bh
                 if hours_left < 48:
-                    runway = f" — ~{hours_left:.0f}h of runway left"
+                    runway = f" : ~{hours_left:.0f}h of runway left"
                 else:
-                    runway = f" — ~{hours_left / 24:.1f} days of runway left"
+                    runway = f" : ~{hours_left / 24:.1f} days of runway left"
             except (ValueError, TypeError, ZeroDivisionError):
                 pass
             monitor_section = (
