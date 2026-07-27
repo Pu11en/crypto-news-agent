@@ -100,7 +100,9 @@ async def _news(
 
     if not result["stories"]:
         await update.message.reply_text(
-            f"No newsworthy stories found in the last {settings.scrape_hours}h. "
+            f"No newsworthy stories found in the last {settings.scrape_hours}h "
+            f"(scraped {result['tweets_fetched']} tweets from "
+            f"{result['accounts_hit']} accounts, ~{result['tweets_fetched']} credits). "
             "Try again later."
         )
         sess.reset(user_id)
@@ -111,7 +113,7 @@ async def _news(
     sess.set_run(user_id, result["run_id"], story_ids)
 
     await update.message.reply_text(
-        _format_top_stories(result["stories"]),
+        _format_top_stories(result["stories"], result["tweets_fetched"], result["accounts_hit"]),
         parse_mode="Markdown",
     )
 
@@ -156,8 +158,20 @@ def _scrape_and_curate(
     # Persist tweets + run row.
     _persist_tweets(run_id, tweets, accounts, errors)
 
+    accounts_hit = len(accounts) - len(errors)
+    # Xquik bills tweet search at 1 credit per tweet returned, so the
+    # credit cost of a run equals the number of tweets fetched.
+    # Ref: https://docs.xquik.com/guides/billing
+    run_meta = {
+        "run_id": run_id,
+        "tweets_fetched": len(tweets),
+        "accounts_hit": accounts_hit,
+        "credit_cost": len(tweets),
+        "stories": [],
+    }
+
     if not tweets:
-        return {"run_id": run_id, "stories": []}
+        return run_meta
 
     # Curate. Cap input size to avoid blowing context — newest first, and trim
     # very long tweets.
@@ -172,7 +186,8 @@ def _scrape_and_curate(
     curated = llm.curate(prompts.CURATE_SYSTEM, prompt)
     stories = curated.get("stories", []) if isinstance(curated, dict) else []
 
-    return {"run_id": run_id, "stories": stories}
+    run_meta["stories"] = stories
+    return run_meta
 
 
 def _persist_tweets(
@@ -234,8 +249,19 @@ def _persist_stories(user_id: int, run_id: str, raw_stories: list[dict]) -> list
     return ids
 
 
-def _format_top_stories(stories: list[dict]) -> str:
+def _format_top_stories(
+    stories: list[dict], tweets_fetched: int = 0, accounts_hit: int = 0
+) -> str:
     lines = [f"📊 *Top {len(stories)} stories (last 24h)*", ""]
+    # Cost footer: 1 credit per tweet returned (Xquik billing).
+    # https://docs.xquik.com/guides/billing
+    cost_note = ""
+    if tweets_fetched:
+        acct_note = f" from {accounts_hit} accounts" if accounts_hit else ""
+        cost_note = (
+            f"\n\n_({tweets_fetched} tweets scraped{acct_note} · "
+            f"~{tweets_fetched} credits used · /credits to check balance)_"
+        )
     for s in stories:
         rank = s.get("rank", "?")
         headline = s.get("headline", "")
@@ -247,7 +273,7 @@ def _format_top_stories(stories: list[dict]) -> str:
     lines.append(
         "Reply with story numbers (e.g. `1,3,5`) or `auto` to use all of them."
     )
-    return "\n".join(lines)
+    return "\n".join(lines) + cost_note
 
 
 # ---------------------------------------------------------------- pick parsing
