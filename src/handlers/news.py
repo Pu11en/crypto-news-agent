@@ -56,6 +56,8 @@ async def _start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "/news — scrape Twitter and build a video script\n"
         "/done — save the current script\n"
         "/cancel — discard and exit\n"
+        "/credits — check Xquik credit balance\n"
+        "/account — full Xquik account summary\n"
         "/help — this message\n\n"
         "Or just talk to me normally."
     )

@@ -143,6 +143,24 @@ class XquikClient:
         rows = data.get("tweets") or data.get("data") or []
         return list(self._parse(username, rows, hours))
 
+    def get_credits(self) -> dict:
+        """Fetch account credit balance + lifetime stats.
+
+        Returns the parsed `/credits` response:
+            balance (str), lifetime_purchased (str), lifetime_used (str),
+            auto_topup_enabled (bool), auto_topup_threshold (str),
+            auto_topup_amount_dollars (int)
+        Values are strings because Xquik returns them that way (big ints).
+        """
+        return self._request("GET", "/credits")
+
+    def get_account(self) -> dict:
+        """Fetch the full account summary (includes creditInfo + monitorBilling).
+
+        Heavier than get_credits() — use for the detailed /account view.
+        """
+        return self._request("GET", "/account")
+
     def _parse(
         self, username: str, rows: list[dict], hours: int
     ) -> Iterator[RawTweet]:

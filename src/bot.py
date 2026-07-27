@@ -34,7 +34,7 @@ from telegram.ext import (  # noqa: E402
 
 import config  # noqa: E402
 import db  # noqa: E402
-from handlers import chat, commands, news  # noqa: E402
+from handlers import chat, commands, credits, news  # noqa: E402
 from llm import GLMClient  # noqa: E402
 
 logging.basicConfig(
@@ -80,6 +80,7 @@ def main() -> None:
     news.register(app, settings, llm, user_filter)
     commands.register(app, user_filter)
     chat.register(app, settings, llm, user_filter)
+    credits.register(app, settings, user_filter)
 
     app.run_polling()
 
