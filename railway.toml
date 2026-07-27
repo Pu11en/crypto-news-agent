@@ -1,0 +1,12 @@
+[deploy]
+# Healthcheck: the bot exposes no HTTP port (it's long-polling Telegram),
+# so we just confirm the process is up. Railway treats a non-zero exit as
+# a failed deploy. `python -c "import sys"` is a trivially-true probe —
+# replace with a real endpoint if one is added later.
+healthcheckPath = ""
+healthcheckTimeout = 30
+
+[deploy.restart]
+# Bots should always restart on crash.
+policy = "ON_FAILURE"
+maxRetries = 5

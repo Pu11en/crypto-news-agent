@@ -1,0 +1,184 @@
+"""SQLite database layer.
+
+Single-file SQLite with WAL for the small single-process bot. The schema
+stores everything the agent produces: raw scraped tweets, the curated
+stories it derives from them, the scripts it writes, and the live
+per-user session state that drives the /news flow's state machine.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+from sqlalchemy import (
+    JSON,
+    Column,
+    DateTime,
+    Integer,
+    String,
+    Text,
+    create_engine,
+    select,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+
+log = logging.getLogger("agent.db")
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Tweet(Base):
+    __tablename__ = "tweets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tweet_id: Mapped[str] = mapped_column(String, index=True)
+    username: Mapped[str] = mapped_column(String, index=True)
+    text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    url: Mapped[str | None] = mapped_column(String)
+    tier: Mapped[str] = mapped_column(String, default="medium")
+    tags: Mapped[str] = mapped_column(String, default="")  # pipe-separated
+    run_id: Mapped[str] = mapped_column(String, index=True)
+
+
+class Story(Base):
+    """A newsworthy item the LLM curated from raw tweets."""
+
+    __tablename__ = "stories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String, index=True)
+    rank: Mapped[int] = mapped_column(Integer)  # 1..N as returned by the LLM
+    headline: Mapped[str] = mapped_column(String)
+    summary: Mapped[str] = mapped_column(Text)
+    tweet_ids: Mapped[list[str]] = mapped_column(JSON, default=list)  # source tweet_ids
+    score: Mapped[float] = mapped_column(default=0.0)  # 0..1 newsworthiness
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+
+
+class Script(Base):
+    """A generated video script. Versions accumulate within a session."""
+
+    __tablename__ = "scripts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String, index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    body: Mapped[str] = mapped_column(Text)
+    story_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    is_final: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+
+
+class Session(Base):
+    """Per-user conversation state — drives the /news state machine."""
+
+    __tablename__ = "sessions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)  # = user_id (single-user)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    state: Mapped[str] = mapped_column(String, default="idle")
+    # JSON blobs keep the schema flexible without migrations for v1.
+    run_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    story_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    current_script: Mapped[str | None] = mapped_column(Text, nullable=True)
+    script_version: Mapped[int] = mapped_column(Integer, default=0)
+    history: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
+class Run(Base):
+    """A single /news scrape run — for stats and debugging."""
+
+    __tablename__ = "runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    tweets_fetched: Mapped[int] = mapped_column(Integer, default=0)
+    accounts_hit: Mapped[int] = mapped_column(Integer, default=0)
+    errors: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+
+_engine = None
+_SessionLocal: sessionmaker | None = None
+
+
+def init_engine(db_path: str):
+    """Initialise the engine + create tables. Idempotent."""
+    global _engine, _SessionLocal
+    if _engine is not None:
+        return _engine
+
+    # Ensure parent dir exists (matters for /data on a fresh volume).
+    parent = os.path.dirname(db_path)
+    if parent:
+        Path(parent).mkdir(parents=True, exist_ok=True)
+
+    url = f"sqlite:///{db_path}"
+    _engine = create_engine(
+        url,
+        # Single async bot process, but background scrape threads hit the DB
+        # too — disable the same-thread check and let SQLite serialize.
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(_engine)
+    _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
+
+    # Enable WAL for better concurrent-read performance.
+    with _engine.connect() as conn:
+        from sqlalchemy import text
+
+        conn.execute(text("PRAGMA journal_mode=WAL"))
+        conn.commit()
+
+    log.info("DB ready at %s (WAL mode)", db_path)
+    return _engine
+
+
+def session() -> sessionmaker:
+    """Return the session factory. init_engine() must have run first."""
+    if _SessionLocal is None:
+        raise RuntimeError("DB not initialised — call init_engine() first")
+    return _SessionLocal
+
+
+def get_or_create_session(user_id: int) -> Session:
+    """Fetch the single per-user session row, creating it if absent."""
+    db = session()()
+    sid = str(user_id)
+    existing = db.get(Session, sid)
+    if existing is not None:
+        db.close()
+        return existing
+    new = Session(id=sid, user_id=user_id, state="idle")
+    db.add(new)
+    db.commit()
+    db.refresh(new)
+    db.close()
+    return new

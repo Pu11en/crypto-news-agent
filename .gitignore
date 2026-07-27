@@ -15,6 +15,9 @@ __pycache__/
 .venv/
 venv/
 
+# Local data
+data/
+
 # IDE
 .vscode/
 .idea/
@@ -26,3 +29,6 @@ Thumbs.db
 
 # Railway
 .railway/
+
+# ZCode local artifacts
+.zcode/

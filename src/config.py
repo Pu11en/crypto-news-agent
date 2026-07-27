@@ -1,0 +1,62 @@
+"""Central configuration — all settings come from environment variables.
+
+Loaded once at startup. Raises if anything required is missing or unparsable
+so misconfig fails fast at boot instead of mid-request.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+
+
+def _required(name: str) -> str:
+    val = os.environ.get(name, "").strip()
+    if not val:
+        raise RuntimeError(f"Missing required env var: {name}")
+    return val
+
+
+def _int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    return int(raw) if raw else default
+
+
+def _user_ids(name: str) -> list[int]:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return []
+    return [int(x.strip()) for x in raw.split(",") if x.strip()]
+
+
+@dataclass(frozen=True)
+class Settings:
+    # LLM
+    zai_api_key: str
+    zai_base_url: str
+    zai_model: str
+    # Scraper
+    xquik_api_key: str
+    scrape_hours: int
+    max_tweets_per_account: int
+    # Telegram
+    telegram_bot_token: str
+    allowed_user_ids: tuple[int, ...]
+    # Storage
+    db_path: str
+
+
+def load() -> Settings:
+    return Settings(
+        zai_api_key=_required("ZAI_API_KEY"),
+        zai_base_url=os.environ.get(
+            "ZAI_BASE_URL", "https://api.z.ai/api/coding/paas/v4"
+        ).rstrip("/"),
+        zai_model=os.environ.get("ZAI_MODEL", "glm-4.6"),
+        xquik_api_key=_required("XQUIK_API_KEY"),
+        scrape_hours=_int("SCRAPE_HOURS", 24),
+        max_tweets_per_account=_int("MAX_TWEETS_PER_ACCOUNT", 20),
+        telegram_bot_token=_required("TELEGRAM_BOT_TOKEN"),
+        allowed_user_ids=tuple(_user_ids("ALLOWED_USER_IDS")),
+        db_path=os.environ.get("DB_PATH", "/data/agent.db"),
+    )

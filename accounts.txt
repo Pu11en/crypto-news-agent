@@ -1,0 +1,129 @@
+# Crypto Twitter Pipeline - Xquik Edition
+# Format: username,tier,tags
+# Tier: critical, high, medium, low
+
+# ============================================
+# TIER 0: BREAKING NEWS (FIRST TO POST)
+# ============================================
+colin_alex,critical,news
+metrika_co,critical,on-chain|analytics
+zhusu,critical,glassnode|news
+santimentfeed,critical,data|alerts
+
+# ============================================
+# TIER 1: SMART MONEY (WHALES)
+# ============================================
+lookonchain,critical,whales|on-chain|transfers
+nansen_alert,critical,whales|alerts
+whale_alert,critical,whales|bitcoin|transfers
+ArkhamIntel,critical,whale-tracking|tracing
+Spotonchain,critical,whale-tracks|on-chain
+debank_com,high,wallet-tracker
+
+# ============================================
+# TIER 2: HACKS/RUGS (VIRAL GOLD)
+# ============================================
+zachxbt,critical,hacks|scams|investigative
+MistTrack,critical,hack-tracking|stolen-funds
+CertiKAlert,critical,security|audits|hacks
+ScamSniffer,critical,phishing|scams
+RugPullFinder,high,rug-pulls|new-tokens
+
+# ============================================
+# TIER 3: INSTITUTIONAL/BIG MONEY
+# ============================================
+APompliano,critical,crypto|macro|news
+saylor,critical,bitcoin|microstrategy
+CryptoQuant,high,on-chain|bitcoin
+BitcoinETFFlow,critical,etf-flows
+CryptoValkyrie,high,etf|bitcoin
+BitcoinMagazine,high,bitcoin|news
+
+# ============================================
+# TIER 4: SOLANA ECOSYSTEM (FASTEST MOVING)
+# ============================================
+SolanaScribe,high,memecoin|solana|alpha
+Pumpdotfun,high,meme-launchpad|launches
+SolanaFloor,high,trending|nfts
+Birdeye360,high,trending|aggregator
+HeliusLab,high,dev-tools|updates
+jump_,high,jump-trading|alpha
+jumptrading,high,alpha|trading
+0xMert_,high,defi|trading|alpha
+aeyakove,high,defi|alpha
+CryptoMichdel,medium,solana|trading
+hsingh_,medium,defi|alpha
+AxerCapital,medium,alpha|trading
+ShrimpMaxi,medium,alpha|meme
+cryptocoinbuster,medium,alpha|trading
+
+# ============================================
+# TIER 5: TRADING/MARKET
+# ============================================
+GlassnodeAlerts,high,on-chain|alerts
+CoinGlassAlert,high,liquidations|data
+coingecko,medium,prices|alerts
+SentimentBot,high,sentiment
+AlternativeMe,medium,fear-greed
+
+# ============================================
+# TIER 6: ANALYSIS/KOL
+# ============================================
+jconorgauder,high,trading|analysis
+rektcapital,high,bitcoin|trading
+CryptoCapo_,high,trading|signals
+ali_charts,medium,charts|technical
+MerchantMagic,medium,solana|trading
+CryptoCrier,high,news|alpha
+TheDeFiEdge,high,tips|defi
+QwQiao,medium,defi|trading
+investingwiz,high,signals|alpha
+cryptocortex_,high,trading|signals
+
+# ============================================
+# TIER 7: AI/TECH (CROSSOVER)
+# ============================================
+sama,critical,openai|breaking
+ylecun,high,meta|ai
+balajis,high,bitcoin|tech|startups
+naval,medium,wisdom|startups
+lexfridman,medium,interviews|ai
+DavidSacks,medium,vc|tech
+
+# ============================================
+# TIER 8: DEFI PROTOCOLS
+# ============================================
+DeFiLlama,high,tvl|protocols
+Uniswap,medium,dex|trades
+RaydiumProtocol,medium,solana|dex
+JupiterAggregator,high,solana|aggregator
+
+# ============================================
+# TIER 9: FOUNDERS/TECH
+# ============================================
+VitalikButerin,critical,ethereum|tech
+aantonop,high,bitcoin|education
+uni_cyan,medium,uniswap|defi
+AaveAave,medium,lending|protocols
+
+# ============================================
+# TIER 10: MEMECOIN ALPHA
+# ============================================
+memecoin_mix,high,alpha|new-coins
+memecoin_alpha_,high,alpha|signals
+whale_traderPRO,high,trades|whales
+solmemetrades,high,solana-meme|trades
+MemeCoinSanta,medium,signals|alpha
+
+# ============================================
+# EXTRA: MISC HIGH SIGNAL
+# ============================================
+bitcoin_elon,medium,bitcoin|elon
+CryptoX,medium,aggregator
+CryptoYapper,high,news|alpha
+TheCryptoLark,medium,news|analysis
+eldefaccio,medium,bitcoin|macro
+woonomic,medium,on-chain|bitcoin
+gaborgabor,medium,bitcoin|analysis
+CryptoSaurusRex,high,alpha|trading
+TraderMayne,high,alpha|signals
