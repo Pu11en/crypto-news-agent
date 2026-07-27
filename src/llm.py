@@ -31,6 +31,11 @@ class GLMClient:
             base_url=settings.zai_base_url,
         )
         self.model = settings.zai_model
+        # GLM-4.6 ships with hybrid thinking on by default — reasoning tokens
+        # eat the max_tokens budget and can return empty content. Disabled
+        # globally: this bot's prompts are explicit enough not to need it.
+        # Ref: https://docs.z.ai/guides/capabilities/thinking-mode
+        self._extra_body = {"thinking": {"type": "disabled"}}
 
     def _chat(
         self,
@@ -49,6 +54,7 @@ class GLMClient:
                 ],
                 temperature=temperature,
                 max_tokens=max_tokens,
+                extra_body=self._extra_body,
             )
             return (resp.choices[0].message.content or "").strip()
         except Exception as e:
@@ -100,6 +106,7 @@ class GLMClient:
                 messages=messages,
                 temperature=0.7,
                 max_tokens=800,
+                extra_body=self._extra_body,
             )
             return (resp.choices[0].message.content or "").strip()
         except Exception as e:

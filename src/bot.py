@@ -16,15 +16,21 @@ import logging
 import os
 import sys
 
-from telegram.ext import (
+# When launched as `python src/bot.py`, `src` isn't on sys.path by default —
+# add it so `import config`, `import db`, etc. resolve.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Load .env from the project root (one level up from src/) before config runs.
+# Safe in prod: if no .env exists (e.g. Railway), this is a no-op.
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+from telegram.ext import (  # noqa: E402
     Application,
     ApplicationBuilder,
     filters,
 )
-
-# When launched as `python src/bot.py`, `src` isn't on sys.path by default —
-# add it so `import config`, `import db`, etc. resolve.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config  # noqa: E402
 import db  # noqa: E402
@@ -45,11 +51,6 @@ def main() -> None:
     log.info("Starting crypto news agent…")
     settings = config.load()
 
-    if not settings.allowed_user_ids:
-        log.warning(
-            "ALLOWED_USER_IDS is empty — NO ONE will be able to use the bot."
-        )
-
     # Initialise DB before the LLM, since handlers depend on it.
     db.init_engine(settings.db_path)
 
@@ -62,12 +63,19 @@ def main() -> None:
     # Framework-level allowlist: build a user filter once and pass it to every
     # handler. Updates from non-allowlisted users never reach our code — the
     # Application drops them at the filter stage.
+    #
+    # If ALLOWED_USER_IDS is empty, the bot is OPEN TO EVERYONE (any Telegram
+    # user can trigger it). Set the env var to restrict access to specific IDs.
     if settings.allowed_user_ids:
         user_filter = filters.User(user_id=set(settings.allowed_user_ids))
+        log.info("Allowlist: %s", settings.allowed_user_ids)
     else:
-        # Empty allowlist → match nobody (deny-all) rather than nobody → match all.
-        user_filter = ~filters.ALL
-    log.info("Allowlist: %s", settings.allowed_user_ids or "(empty!)")
+        user_filter = filters.ALL
+        log.warning(
+            "ALLOWED_USER_IDS is empty — bot is OPEN TO EVERYONE. "
+            "Anyone who finds @%s can trigger scrapes.",
+            "Jcryptonewsbot",
+        )
 
     news.register(app, settings, llm, user_filter)
     commands.register(app, user_filter)
