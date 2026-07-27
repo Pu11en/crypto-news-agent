@@ -33,7 +33,10 @@ def _seed_final_script() -> int:
 def test_explicit_script_approval_recognizes_positive_phrases_not_negation():
     assert chat.is_script_approval("Looks good") is True
     assert chat.is_script_approval("perfect, use this") is True
+    assert chat.is_script_approval("that's exactly what I want") is True
     assert chat.is_script_approval("not good yet") is False
+    assert chat.is_script_approval("I don't approve it") is False
+    assert chat.is_script_approval("Perfect, one more change") is False
     assert chat.is_script_approval("almost perfect but change the hook") is False
 
 

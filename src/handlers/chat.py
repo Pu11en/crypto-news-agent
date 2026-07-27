@@ -33,14 +33,33 @@ _APPROVAL_PHRASES = (
     "use this",
     "this is the one",
     "ready to record",
+    "exactly what i want",
+    "good to go",
+    "lock it",
 )
-_NEGATING_WORDS = ("not ", "almost ", "but ", "change ", "fix ", "revise ")
+_REVISION_MARKERS = (
+    "almost ",
+    " but ",
+    "except ",
+    "one more",
+    "change the",
+    "change this",
+    "please change",
+    "fix ",
+    "revise ",
+    "not yet",
+)
+_NEGATED_APPROVAL = re.compile(
+    r"\b(?:do not|don't|dont|never|not)\s+(?:approve|approved|good|perfect|ready)\b"
+)
 
 
 def is_script_approval(text: str) -> bool:
     """Recognize explicit approval while avoiding common revision phrases."""
-    normalized = re.sub(r"\s+", " ", text.strip().lower())
-    if any(word in normalized for word in _NEGATING_WORDS):
+    normalized = re.sub(r"\s+", " ", text.strip().lower().replace("’", "'"))
+    if _NEGATED_APPROVAL.search(normalized):
+        return False
+    if any(marker in normalized for marker in _REVISION_MARKERS):
         return False
     return any(phrase in normalized for phrase in _APPROVAL_PHRASES)
 

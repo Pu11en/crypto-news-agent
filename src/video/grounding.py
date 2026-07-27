@@ -15,11 +15,9 @@ def validate_storyboard(storyboard: dict, source_bundle: dict) -> list[str]:
     errors: list[str] = []
     tweets = source_bundle.get("tweets", [])
     valid_tweet_ids = {str(tweet.get("tweetId")) for tweet in tweets}
-    source_text = "\n".join(
-        [source_bundle.get("approvedScript", "")]
-        + [str(tweet.get("text", "")) for tweet in tweets]
-        + [str(story.get("summary", "")) for story in source_bundle.get("stories", [])]
-    )
+    # Only raw scraper text is factual evidence. The approved script and curated
+    # story summaries are derived text and therefore cannot self-ground a number.
+    source_text = "\n".join(str(tweet.get("text", "")) for tweet in tweets)
     grounded_numbers = _numbers(source_text)
 
     for scene in storyboard.get("scenes", []):

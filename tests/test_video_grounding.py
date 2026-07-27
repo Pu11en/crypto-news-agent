@@ -81,3 +81,22 @@ def test_grounding_rejects_numbers_and_evidence_not_in_scraper(isolated_db):
 
     assert any("tweet-missing" in error for error in errors)
     assert any("99" in error for error in errors)
+
+
+def test_number_in_script_but_not_scraped_tweet_is_unsupported(isolated_db):
+    script_id = _seed_source_graph()
+    bundle = sources.build_source_bundle(script_id)
+    bundle["approvedScript"] = "The ETF recorded $77 million."
+    storyboard = {
+        "scenes": [{
+            "id": "scene-script-only",
+            "spokenClaim": "The ETF recorded $77 million.",
+            "evidenceTweetIds": ["tweet-42"],
+            "dataPoints": [{"label": "Inflow", "value": "$77 million"}],
+            "visualForm": "hero-stat",
+        }]
+    }
+
+    errors = grounding.validate_storyboard(storyboard, bundle)
+
+    assert any("77" in error for error in errors)

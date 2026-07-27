@@ -1,9 +1,48 @@
 from __future__ import annotations
 
+import json
+import re
 import subprocess
 from pathlib import Path
 
 from video.ingest import probe
+
+
+def _upper_luma_ranges(output_path: str | Path) -> list[int]:
+    result = subprocess.run(
+        [
+            "ffmpeg", "-v", "error", "-i", str(output_path),
+            "-vf", "crop=1080:1312:0:0,fps=1,signalstats,metadata=print:file=-",
+            "-an", "-f", "null", "-",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    mins = [int(value) for value in re.findall(r"YMIN=(\d+)", result.stdout)]
+    maxs = [int(value) for value in re.findall(r"YMAX=(\d+)", result.stdout)]
+    return [high - low for low, high in zip(mins, maxs)]
+
+
+def _stream_durations(output_path: str | Path) -> dict[str, float]:
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-show_entries", "stream=codec_type,duration",
+            "-of", "json", str(output_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    durations: dict[str, float] = {}
+    for stream in json.loads(result.stdout).get("streams", []):
+        try:
+            durations[str(stream["codec_type"])] = float(stream["duration"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return durations
 
 
 def lint(public_dir: str | Path) -> str:
@@ -63,6 +102,17 @@ def validate_output(output_path: str | Path, expected_duration: float) -> dict:
         errors.append(f"duration changed from {expected_duration:.3f}s to {info.duration:.3f}s")
     if not info.has_audio or not info.has_video:
         errors.append("final file is missing audio or video")
+    luma_ranges = _upper_luma_ranges(output_path)
+    if not luma_ranges:
+        errors.append("could not sample the upper graphics region")
+    elif any(value < 12 for value in luma_ranges):
+        errors.append("blank upper graphics frame detected")
+    stream_durations = _stream_durations(output_path)
+    if {"audio", "video"}.issubset(stream_durations):
+        if abs(stream_durations["audio"] - stream_durations["video"]) > 0.12:
+            errors.append(
+                "audio/video stream durations differ by more than 0.12 seconds"
+            )
     if errors:
         raise RuntimeError("Final video QA failed: " + "; ".join(errors))
     return {
@@ -71,8 +121,8 @@ def validate_output(output_path: str | Path, expected_duration: float) -> dict:
         "duration": info.duration,
         "videoCodec": info.video_codec,
         "audioCodec": info.audio_codec,
-        "audioSync": "passed",
-        "blankFrames": "passed via reviewed hold frames",
+        "audioSync": "passed via stream-duration comparison",
+        "blankFrames": f"passed across {len(luma_ranges)} sampled upper-region frames",
         "textOverflow": "passed via constrained compiler",
         "telegramEncoding": "passed",
     }
