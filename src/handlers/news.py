@@ -31,6 +31,7 @@ log = logging.getLogger("agent.news")
 
 # Cap concurrency on the scrape : Xquik tolerates ~10 req/s.
 _SCRAPE_WORKERS = 8
+_NEWS_IN_PROGRESS = False
 SCRIPT_BANNER = "📝 *Script draft* (v%d)\n\n%s\n\n_Talk to me to refine it, or_ /done _to save,_ /cancel _to discard._"
 
 
@@ -74,30 +75,51 @@ async def _news(
     settings: Settings,
     llm: LLMClient,
 ) -> None:
+    global _NEWS_IN_PROGRESS
     user_id = update.effective_user.id
+    active_video = jobs.get_active_for_user(user_id)
+    if active_video is not None:
+        await update.message.reply_text(
+            "A video job is still active. Finish, retry, or cancel it before starting /news again."
+        )
+        return
     # Lock so a second /news can't collide with a running one.
     current = sess.load(user_id)
-    if current.state in (sess.AWAITING_PICK, sess.SCRIPT_DRAFT):
+    if current.state in (sess.SCRAPING, sess.AWAITING_PICK, sess.SCRIPT_DRAFT):
         await update.message.reply_text(
             "You're already in a flow. Send /cancel first if you want to restart."
         )
         return
+    if _NEWS_IN_PROGRESS:
+        await update.message.reply_text(
+            "Another news scrape is already running. Try again after it finishes."
+        )
+        return
 
-    await update.message.reply_text(
-        f"🔍 Scraping the last {settings.scrape_hours}h across your account list…"
-    )
+    _NEWS_IN_PROGRESS = True
+    sess.set_state(user_id, sess.SCRAPING)
 
     # Run the blocking scrape + curate in a thread; await from the event loop.
     try:
-        result = await asyncio.to_thread(
-            _scrape_and_curate, settings, llm, user_id
+        await update.message.reply_text(
+            f"🔍 Scraping the last {settings.scrape_hours}h across your account list…"
         )
+        result = await asyncio.to_thread(_scrape_and_curate, settings, llm, user_id)
     except XquikError as e:
+        sess.reset(user_id)
         await update.message.reply_text(f"Scraper error: {e}")
         return
     except LLMError as e:
+        sess.reset(user_id)
         await update.message.reply_text(f"AI error during curation: {e}")
         return
+    except Exception:
+        log.exception("unexpected error during news scrape")
+        sess.reset(user_id)
+        await update.message.reply_text("Unexpected scraper error. Please try again later.")
+        return
+    finally:
+        _NEWS_IN_PROGRESS = False
 
     if not result["stories"]:
         await update.message.reply_text(
@@ -357,22 +379,43 @@ def write_initial_script(
     return body
 
 
-def _save_script(user_id: int, body: str, story_ids: list[int]) -> None:
+def _save_script(user_id: int, body: str, story_ids: list[int]) -> int:
     user_sess = sess.load(user_id)
     s = db.session()()
     try:
-        s.add(
-            db.Script(
-                session_id=str(user_id),
-                version=user_sess.script_version,
-                body=body,
-                story_ids=story_ids,
-                is_final=False,
-            )
+        row = db.Script(
+            session_id=str(user_id),
+            version=user_sess.script_version,
+            body=body,
+            story_ids=story_ids,
+            is_final=False,
         )
+        s.add(row)
         s.commit()
+        s.refresh(row)
+        return row.id
     finally:
         s.close()
+
+
+def current_script_id(user_id: int) -> int:
+    user_sess = sess.load(user_id)
+    factory = db.session()
+    with factory() as s:
+        row = (
+            s.query(db.Script)
+            .filter(
+                db.Script.session_id == str(user_id),
+                db.Script.version == user_sess.script_version,
+                db.Script.body == user_sess.current_script,
+                db.Script.story_ids == (user_sess.story_ids or []),
+            )
+            .order_by(db.Script.id.desc())
+            .first()
+        )
+        if row is None:
+            raise ValueError("The displayed draft has not been persisted")
+        return row.id
 
 
 def finalize_script(user_id: int) -> str | None:
@@ -382,11 +425,16 @@ def finalize_script(user_id: int) -> str | None:
         return None
     s = db.session()()
     try:
-        # Mark the latest version final.
+        # Mark the exact session-displayed version final.
         latest = (
             s.query(db.Script)
-            .filter(db.Script.session_id == str(user_id))
-            .order_by(db.Script.version.desc())
+            .filter(
+                db.Script.session_id == str(user_id),
+                db.Script.version == user_sess.script_version,
+                db.Script.body == user_sess.current_script,
+                db.Script.story_ids == (user_sess.story_ids or []),
+            )
+            .order_by(db.Script.id.desc())
             .first()
         )
         if latest:
@@ -399,7 +447,12 @@ def finalize_script(user_id: int) -> str | None:
     return body
 
 
-def approve_script(user_id: int, chat_id: int) -> tuple[db.Script, db.VideoJob]:
+def approve_script(
+    user_id: int,
+    chat_id: int,
+    expected_script_id: int | None = None,
+    stale_hours: int = jobs.ACTIVE_JOB_TTL_HOURS,
+) -> tuple[db.Script, db.VideoJob]:
     """Lock the latest draft and create the idempotent Telegram video job."""
     user_sess = sess.load(user_id)
     if not user_sess.current_script:
@@ -408,17 +461,36 @@ def approve_script(user_id: int, chat_id: int) -> tuple[db.Script, db.VideoJob]:
     with factory() as s:
         latest = (
             s.query(db.Script)
-            .filter(db.Script.session_id == str(user_id))
-            .order_by(db.Script.version.desc())
+            .filter(
+                db.Script.session_id == str(user_id),
+                db.Script.version == user_sess.script_version,
+                db.Script.body == user_sess.current_script,
+                db.Script.story_ids == (user_sess.story_ids or []),
+            )
+            .order_by(db.Script.id.desc())
             .first()
         )
+        if expected_script_id is not None:
+            latest = s.get(db.Script, expected_script_id)
+            if latest is not None and (
+                latest.session_id != str(user_id)
+                or latest.version != user_sess.script_version
+                or latest.body != user_sess.current_script
+                or latest.story_ids != (user_sess.story_ids or [])
+            ):
+                latest = None
         if latest is None:
-            raise ValueError("The current draft has not been saved")
+            raise ValueError("The displayed script version does not match the saved draft")
         latest.is_final = True
         s.commit()
         s.refresh(latest)
         script_id = latest.id
-    job = jobs.create_for_script(user_id=user_id, chat_id=chat_id, script_id=script_id)
+    job = jobs.create_for_script(
+        user_id=user_id,
+        chat_id=chat_id,
+        script_id=script_id,
+        stale_hours=stale_hours,
+    )
     sess.set_state(user_id, sess.AWAITING_VIDEO)
     return latest, job
 

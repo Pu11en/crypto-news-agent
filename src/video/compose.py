@@ -67,7 +67,7 @@ def _scene_html(scene: dict, index: int) -> str:
     )
     if not sources:
         sources = '<span class="source-pill">APPROVED SCRIPT</span>'
-    return f'''<div class="card-host clip" data-card-id="{scene_id}" data-start="{start:.3f}" data-duration="{duration:.3f}" data-track-index="2" style="left:0;top:0;width:1080px;height:1312px;visibility:hidden;opacity:0">
+    return f'''<div id="card-{scene_id}" class="card-host clip" data-card-id="{scene_id}" data-start="{start:.3f}" data-duration="{duration:.3f}" data-track-index="2" style="left:0;top:0;width:1080px;height:1312px;visibility:hidden;opacity:0">
 <div class="card" data-card-id="{scene_id}"><div class="scene{dark}" data-form="{form}"><div class="ghost">{index + 1:02d}</div>
 <div class="topline"><span class="dot"></span><span class="kicker">{_esc(scene.get('kicker', 'THE STORY'))}</span><span class="source-count">{len(scene.get('evidenceTweetIds', []))} SOURCE</span></div>
 <div class="content"><div class="title-wrap"><span class="marker"></span><h2 class="title">{_esc(scene.get('title', ''))}</h2></div><p class="body">{_esc(scene.get('body', ''))}</p><div class="rule"></div><div class="visual">{items}</div></div>
@@ -96,7 +96,7 @@ def _captions_html(words: list[dict], duration: float) -> str:
         start = max(0.0, min(duration, group["start"]))
         end = max(start + 0.05, min(duration, group["end"]))
         blocks.append(
-            f'<div class="caption clip" data-start="{start:.3f}" data-duration="{end - start:.3f}" data-track-index="20" style="visibility:hidden">{_esc(group["text"])}</div>'
+            f'<div id="caption-{index + 1:02d}" class="caption clip" data-start="{start:.3f}" data-duration="{end - start:.3f}" data-track-index="20" style="visibility:hidden">{_esc(group["text"])}</div>'
         )
     return "\n".join(blocks)
 
@@ -125,6 +125,35 @@ def _timeline_js(storyboard: dict) -> str:
         )
     lines.append("window.__timelines=window.__timelines||{};window.__timelines['crypto-news']=tl;})();")
     return "".join(lines)
+
+
+OVERFLOW_JS = r"""
+(function(){
+  function checkOverflow(){
+    var issues=[];
+    document.querySelectorAll('.content,.source-row,.caption').forEach(function(el){
+      var scrolls=el.scrollWidth>el.clientWidth+1 || el.scrollHeight>el.clientHeight+1;
+      if(scrolls){
+        issues.push({id:el.id||'',className:el.className||'',scrollWidth:el.scrollWidth,clientWidth:el.clientWidth,scrollHeight:el.scrollHeight,clientHeight:el.clientHeight});
+      }
+    });
+    document.querySelectorAll('.title,.body,.visual-value,.visual-label,.kicker,.source-pill').forEach(function(el){
+      if(el.scrollWidth>el.clientWidth+1){
+        issues.push({id:el.id||'',className:el.className||'',scrollWidth:el.scrollWidth,clientWidth:el.clientWidth});
+      }
+    });
+    var report={count:issues.length,issues:issues};
+    document.documentElement.setAttribute('data-text-overflow-count',String(report.count));
+    document.documentElement.setAttribute('data-text-overflow-report',encodeURIComponent(JSON.stringify(report)));
+    console.log('HF_TEXT_OVERFLOW:'+JSON.stringify(report));
+  }
+  window.addEventListener('load',function(){
+    if(document.fonts && document.fonts.ready){document.fonts.ready.then(checkOverflow);}
+    else{checkOverflow();}
+  });
+  window.setTimeout(checkOverflow,750);
+})();
+"""
 
 
 def _stage_assets(public_dir: Path) -> None:
@@ -163,7 +192,7 @@ def write_composition(public_dir: str | Path, storyboard: dict, transcript_words
 <audio id="source-audio" src="input-video.mp4" data-start="0" data-duration="{duration:.3f}" data-track-index="10" data-volume="1"></audio>
 {cards}
 {captions}
-<script src="vendor/gsap.min.js"></script><script>{_timeline_js(storyboard)}</script>
+<script src="vendor/gsap.min.js"></script><script>{_timeline_js(storyboard)}{OVERFLOW_JS}</script>
 </div></body></html>'''
     index_path = public / "index.html"
     index_path.write_text(document, encoding="utf-8")

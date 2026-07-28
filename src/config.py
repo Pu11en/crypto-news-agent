@@ -50,6 +50,8 @@ class Settings:
     db_path: str
     video_work_dir: str = "data/video-jobs"
     video_max_seconds: int = 90
+    video_max_upload_mb: int = 20
+    video_artifact_retention_hours: int = 72
     whisper_model: str = "small.en"
 
 
@@ -73,5 +75,7 @@ def load() -> Settings:
         db_path=os.environ.get("DB_PATH", "/data/agent.db"),
         video_work_dir=os.environ.get("VIDEO_WORK_DIR", "data/video-jobs"),
         video_max_seconds=_int("VIDEO_MAX_SECONDS", 90),
+        video_max_upload_mb=_int("VIDEO_MAX_UPLOAD_MB", 20),
+        video_artifact_retention_hours=_int("VIDEO_ARTIFACT_RETENTION_HOURS", 72),
         whisper_model=os.environ.get("WHISPER_MODEL", "small.en"),
     )

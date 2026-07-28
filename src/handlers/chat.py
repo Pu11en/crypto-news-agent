@@ -50,7 +50,11 @@ _REVISION_MARKERS = (
     "not yet",
 )
 _NEGATED_APPROVAL = re.compile(
-    r"\b(?:do not|don't|dont|never|not)\s+(?:approve|approved|good|perfect|ready)\b"
+    r"\b(?:do not|don't|dont|does not|doesn't|doesnt|did not|didn't|didnt|"
+    r"cannot|can't|cant|will not|won't|wont|would not|wouldn't|wouldnt|"
+    r"should not|shouldn't|shouldnt|could not|couldn't|couldnt|"
+    r"is not|isn't|isnt|never|not)\b[\w\s']{0,25}?"
+    r"\b(?:approve|approved|good|perfect|ready|exactly|lock|use|go)\b"
 )
 
 
@@ -89,7 +93,7 @@ async def _route(
         await _handle_pick(update, settings, llm, user_sess, text)
     elif user_sess.state == sess.SCRIPT_DRAFT:
         if is_script_approval(text):
-            await _handle_approval(update)
+            await _handle_approval(update, settings)
         else:
             await _handle_refine(update, llm, user_sess, text)
     elif user_sess.state == sess.STORYBOARD_REVISION:
@@ -148,19 +152,24 @@ async def _handle_pick(
         return
 
     user_sess = sess.load(update.effective_user.id)
+    script_id = news.current_script_id(update.effective_user.id)
     await update.message.reply_text(
         news.script_banner(body, user_sess.script_version),
         parse_mode="Markdown",
-        reply_markup=__import__("handlers.video", fromlist=["script_keyboard"]).script_keyboard(),
+        reply_markup=__import__("handlers.video", fromlist=["script_keyboard"]).script_keyboard(
+            script_id
+        ),
     )
 
 
 # ---------------------------------------------------------------- script_draft
 
-async def _handle_approval(update: Update) -> None:
+async def _handle_approval(update: Update, settings: Settings) -> None:
     try:
         script, _job = news.approve_script(
-            update.effective_user.id, update.effective_chat.id
+            update.effective_user.id,
+            update.effective_chat.id,
+            stale_hours=settings.video_artifact_retention_hours,
         )
     except ValueError as exc:
         await update.message.reply_text(f"Could not approve the script: {exc}")
@@ -190,14 +199,16 @@ async def _handle_refine(
         return
 
     sess.set_current_script(user_id, new_body)
-    # Persist this version.
-    news._save_script(user_id, new_body, user_sess.story_ids or [])
+    # Persist this version and bind its immutable row ID to the button.
+    script_id = news._save_script(user_id, new_body, user_sess.story_ids or [])
 
     user_sess = sess.load(user_id)
     await update.message.reply_text(
         news.script_banner(new_body, user_sess.script_version),
         parse_mode="Markdown",
-        reply_markup=__import__("handlers.video", fromlist=["script_keyboard"]).script_keyboard(),
+        reply_markup=__import__("handlers.video", fromlist=["script_keyboard"]).script_keyboard(
+            script_id
+        ),
     )
 
 

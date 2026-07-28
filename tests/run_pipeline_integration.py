@@ -79,6 +79,22 @@ jobs.transition(
 
 class FakeDirector:
     def structured(self, system, user_prompt, **kwargs):
+        if "fact checker" in system.lower():
+            payload = json.loads(user_prompt)
+            quote = (
+                "The Solana ETF recorded $42 million in first-day inflows "
+                "and gives brokerage accounts access to SOL."
+            )
+            return {
+                "claims": [
+                    {
+                        "sceneId": scene["sceneId"],
+                        "status": "supported",
+                        "evidence": [{"tweetId": "tweet-42", "quote": quote}],
+                    }
+                    for scene in payload["scenes"]
+                ]
+            }
         beat_ids = []
         for beat_id in re.findall(r'"id":\s*"(beat-\d+)"', user_prompt):
             if beat_id not in beat_ids:

@@ -16,6 +16,7 @@ def extract_audio(video_path: str | Path, audio_path: str | Path) -> Path:
         check=True,
         capture_output=True,
         text=True,
+        timeout=300,
     )
     return destination
 
@@ -25,7 +26,7 @@ def run(audio_path: str | Path, work_dir: str | Path, model: str = "small.en") -
     work.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [
-            "npx", "--yes", "hyperframes@latest", "transcribe", str(audio_path),
+            "npx", "--yes", "hyperframes@0.7.76", "transcribe", str(audio_path),
             "-d", str(work), "--json", "--model", model,
         ],
         check=True,
@@ -43,11 +44,15 @@ def run(audio_path: str | Path, work_dir: str | Path, model: str = "small.en") -
         text = str(item.get("text", item.get("word", ""))).strip()
         if not text:
             continue
+        start_value = item.get("start")
+        start = float(start_value if start_value is not None else 0.0)
+        end_value = item.get("end")
+        end = float(end_value if end_value is not None else start)
         normalized.append(
             {
                 "text": text,
-                "start": float(item.get("start", 0.0)),
-                "end": float(item.get("end", item.get("start", 0.0))),
+                "start": start,
+                "end": end,
             }
         )
     if not normalized:

@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from video import ingest
 
 
@@ -76,3 +78,24 @@ def test_probe_rejects_media_without_audio(tmp_path):
         assert "audio" in str(exc).lower()
     else:
         raise AssertionError("silent source should be rejected")
+
+
+def test_upload_limits_reject_oversized_files_and_extreme_resolution(monkeypatch):
+    with pytest.raises(ValueError, match="20 MB"):
+        ingest.validate_upload_size(21 * 1024 * 1024, max_megabytes=20)
+
+    monkeypatch.setattr(
+        ingest,
+        "probe",
+        lambda _: ingest.MediaInfo("x", 30.0, 5000, 3000, 30.0, True, True),
+    )
+    with pytest.raises(ValueError, match="resolution"):
+        ingest.validate_source("x", max_pixels=3840 * 2160)
+
+    monkeypatch.setattr(
+        ingest,
+        "probe",
+        lambda _: ingest.MediaInfo("x", 30.0, 1920, 1080, 1200.0, True, True),
+    )
+    with pytest.raises(ValueError, match="frame rate"):
+        ingest.validate_source("x", max_fps=120)

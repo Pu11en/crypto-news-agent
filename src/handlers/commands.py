@@ -15,9 +15,10 @@ from handlers import session as sess
 from video import jobs
 
 
-def register(app: Application, user_filter) -> None:
+def register(app: Application, user_filter, settings=None) -> None:
     app.add_handler(CommandHandler("done", _done, filters=user_filter))
     app.add_handler(CommandHandler("cancel", _cancel, filters=user_filter))
+    app.bot_data["settings"] = settings
 
 
 async def _done(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
@@ -29,7 +30,15 @@ async def _done(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     try:
-        script, _job = news.approve_script(user_id, update.effective_chat.id)
+        settings = _.application.bot_data.get("settings")
+        stale_hours = (
+            settings.video_artifact_retention_hours
+            if settings is not None
+            else jobs.ACTIVE_JOB_TTL_HOURS
+        )
+        script, _job = news.approve_script(
+            user_id, update.effective_chat.id, stale_hours=stale_hours
+        )
     except ValueError:
         script = None
     if script:
@@ -55,10 +64,14 @@ async def _cancel(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
             jobs.FAILED,
         }:
             jobs.mark_cancelled(active.id)
-        sess.reset(user_id)
-        await update.message.reply_text(
-            "❌ Video job cancelled. Send /news to start again."
-        )
+            sess.reset(user_id)
+            await update.message.reply_text(
+                "❌ Video job cancelled. Send /news to start again."
+            )
+        else:
+            await update.message.reply_text(
+                "⏹ Cancel requested. The current media stage will stop at its next safe checkpoint."
+            )
         return
     user_sess = sess.load(user_id)
     if user_sess.state == sess.IDLE:

@@ -15,6 +15,7 @@ from db import Session, get_or_create_session, session as sessionmaker
 
 IDLE = "idle"
 AWAITING_PICK = "awaiting_pick"
+SCRAPING = "scraping"
 SCRIPT_DRAFT = "script_draft"
 AWAITING_VIDEO = "awaiting_video"
 STORYBOARD_REVISION = "storyboard_revision"

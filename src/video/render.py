@@ -8,6 +8,10 @@ from pathlib import Path
 from video.ingest import probe
 
 
+def _lint_has_zero_errors(output: str) -> bool:
+    return re.search(r"\b0 error(?:s|\(s\))?\b", output) is not None
+
+
 def _upper_luma_ranges(output_path: str | Path) -> list[int]:
     result = subprocess.run(
         [
@@ -25,10 +29,10 @@ def _upper_luma_ranges(output_path: str | Path) -> list[int]:
     return [high - low for low, high in zip(mins, maxs)]
 
 
-def _stream_durations(output_path: str | Path) -> dict[str, float]:
+def _stream_timing(output_path: str | Path) -> dict[str, dict[str, float]]:
     result = subprocess.run(
         [
-            "ffprobe", "-v", "error", "-show_entries", "stream=codec_type,duration",
+            "ffprobe", "-v", "error", "-show_entries", "stream=codec_type,start_time,duration",
             "-of", "json", str(output_path),
         ],
         check=True,
@@ -36,19 +40,22 @@ def _stream_durations(output_path: str | Path) -> dict[str, float]:
         text=True,
         timeout=60,
     )
-    durations: dict[str, float] = {}
+    timing: dict[str, dict[str, float]] = {}
     for stream in json.loads(result.stdout).get("streams", []):
         try:
-            durations[str(stream["codec_type"])] = float(stream["duration"])
+            timing[str(stream["codec_type"])] = {
+                "start": float(stream.get("start_time") or 0.0),
+                "duration": float(stream["duration"]),
+            }
         except (KeyError, TypeError, ValueError):
             continue
-    return durations
+    return timing
 
 
 def lint(public_dir: str | Path) -> str:
     public = Path(public_dir)
     result = subprocess.run(
-        ["npx", "--yes", "hyperframes@latest", "lint", "public"],
+        ["npx", "--yes", "hyperframes@0.7.76", "lint", "public"],
         cwd=public.parent,
         check=False,
         capture_output=True,
@@ -56,7 +63,7 @@ def lint(public_dir: str | Path) -> str:
         timeout=300,
     )
     output = result.stdout + result.stderr
-    if result.returncode != 0 or "0 error(s)" not in output:
+    if result.returncode != 0 or not _lint_has_zero_errors(output):
         raise RuntimeError(f"HyperFrames lint failed:\n{output[-4000:]}")
     return output
 
@@ -69,7 +76,7 @@ def render(public_dir: str | Path, output_path: str | Path) -> Path:
     lint(public)
     subprocess.run(
         [
-            "npx", "--yes", "hyperframes@latest", "render", "public",
+            "npx", "--yes", "hyperframes@0.7.76", "render", "public",
             "--skill=talking-head-recut", "-o", str(raw), "--fps", "30",
         ],
         cwd=public.parent,
@@ -84,35 +91,58 @@ def render(public_dir: str | Path, output_path: str | Path) -> Path:
         check=True,
         capture_output=True,
         text=True,
+        timeout=300,
     )
     raw.unlink(missing_ok=True)
     return destination
 
 
-def validate_output(output_path: str | Path, expected_duration: float) -> dict:
+def validate_output(
+    output_path: str | Path,
+    expected_duration: float,
+    overflow_report_path: str | Path | None = None,
+) -> dict:
     info = probe(output_path)
     errors = []
     if (info.width, info.height) != (1080, 1920):
-        errors.append(f"wrong dimensions: {info.width}x{info.height}")
+        errors.append(f"expected 1080x1920, got {info.width}x{info.height}")
     if info.video_codec != "h264":
-        errors.append(f"wrong video codec: {info.video_codec}")
+        errors.append(f"expected h264 video, got {info.video_codec}")
     if info.audio_codec != "aac":
-        errors.append(f"wrong audio codec: {info.audio_codec}")
+        errors.append(f"expected aac audio, got {info.audio_codec}")
     if abs(info.duration - expected_duration) > 0.12:
         errors.append(f"duration changed from {expected_duration:.3f}s to {info.duration:.3f}s")
     if not info.has_audio or not info.has_video:
         errors.append("final file is missing audio or video")
+    if Path(output_path).stat().st_size > 50 * 1024 * 1024:
+        errors.append("final video exceeds Telegram's 50 MB sendVideo limit")
     luma_ranges = _upper_luma_ranges(output_path)
     if not luma_ranges:
         errors.append("could not sample the upper graphics region")
     elif any(value < 12 for value in luma_ranges):
         errors.append("blank upper graphics frame detected")
-    stream_durations = _stream_durations(output_path)
-    if {"audio", "video"}.issubset(stream_durations):
-        if abs(stream_durations["audio"] - stream_durations["video"]) > 0.12:
-            errors.append(
-                "audio/video stream durations differ by more than 0.12 seconds"
-            )
+    stream_timing = _stream_timing(output_path)
+    if {"audio", "video"}.issubset(stream_timing):
+        audio = stream_timing["audio"]
+        video = stream_timing["video"]
+        if abs(audio["start"] - video["start"]) > 0.12:
+            errors.append("audio/video stream start times differ by more than 0.12 seconds")
+        audio_end = audio["start"] + audio["duration"]
+        video_end = video["start"] + video["duration"]
+        if abs(audio_end - video_end) > 0.12:
+            errors.append("audio/video stream end times differ by more than 0.12 seconds")
+    text_overflow_status = "not checked"
+    if overflow_report_path is not None:
+        report_path = Path(overflow_report_path)
+        if not report_path.exists():
+            errors.append("browser text-overflow report is missing")
+        else:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            overflow_count = int(report.get("count", -1))
+            if overflow_count != 0:
+                errors.append(f"browser detected {overflow_count} text-overflow issue(s)")
+            else:
+                text_overflow_status = "passed via browser DOM measurement"
     if errors:
         raise RuntimeError("Final video QA failed: " + "; ".join(errors))
     return {
@@ -121,8 +151,8 @@ def validate_output(output_path: str | Path, expected_duration: float) -> dict:
         "duration": info.duration,
         "videoCodec": info.video_codec,
         "audioCodec": info.audio_codec,
-        "audioSync": "passed via stream-duration comparison",
+        "audioSync": "passed via stream start/end comparison",
         "blankFrames": f"passed across {len(luma_ranges)} sampled upper-region frames",
-        "textOverflow": "passed via constrained compiler",
+        "textOverflow": text_overflow_status,
         "telegramEncoding": "passed",
     }

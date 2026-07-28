@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from video import compose
+from video import compose, preview
 
 
 def _storyboard(captions: bool = False):
@@ -86,3 +86,21 @@ def test_captions_are_optional_and_timed(tmp_path):
 
     assert 'class="caption clip"' in html
     assert "The ETF arrived." in html
+
+
+def test_browser_dom_overflow_measurement_detects_real_overflow(tmp_path):
+    public = tmp_path / "public"
+    index = compose.write_composition(public, _storyboard(False), [])
+    (public / "input-video.mp4").write_bytes(b"")
+
+    assert preview.measure_text_overflow(public)["count"] == 0
+
+    document = index.read_text(encoding="utf-8").replace(
+        "</body>",
+        '<div class="title" style="width:10px;white-space:nowrap;overflow:hidden">THIS TEXT CANNOT FIT</div></body>',
+    )
+    index.write_text(document, encoding="utf-8")
+
+    report = preview.measure_text_overflow(public)
+    assert report["count"] >= 1
+    assert any(issue.get("className") == "title" for issue in report["issues"])

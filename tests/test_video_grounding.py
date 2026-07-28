@@ -100,3 +100,56 @@ def test_number_in_script_but_not_scraped_tweet_is_unsupported(isolated_db):
     errors = grounding.validate_storyboard(storyboard, bundle)
 
     assert any("77" in error for error in errors)
+
+
+def test_number_hidden_in_rendered_title_is_rejected(isolated_db):
+    bundle = sources.build_source_bundle(_seed_source_graph())
+    storyboard = {
+        "scenes": [{
+            "id": "scene-title",
+            "spokenClaim": "ETF inflows increased.",
+            "title": "$88M INFLOW",
+            "body": "The first day changed access.",
+            "evidenceTweetIds": ["tweet-42"],
+            "dataPoints": [],
+            "visualForm": "editorial-statement",
+        }]
+    }
+
+    errors = grounding.validate_storyboard(storyboard, bundle)
+
+    assert any("88" in error for error in errors)
+
+
+def test_claim_audit_requires_supported_status_and_exact_scraper_quote(isolated_db):
+    bundle = sources.build_source_bundle(_seed_source_graph())
+    storyboard = {
+        "scenes": [{
+            "id": "scene-01",
+            "spokenClaim": "The ETF recorded $42 million in first-day inflows.",
+        }]
+    }
+    valid = {
+        "claims": [{
+            "sceneId": "scene-01",
+            "status": "supported",
+            "evidence": [{
+                "tweetId": "tweet-42",
+                "quote": "ETF inflows reached $42 million in the first day.",
+            }],
+        }]
+    }
+    invalid = {
+        "claims": [{
+            "sceneId": "scene-01",
+            "status": "supported",
+            "evidence": [{
+                "tweetId": "tweet-42",
+                "quote": "This quote was never scraped.",
+            }],
+        }]
+    }
+
+    assert grounding.validate_claim_audit(storyboard, bundle, valid) == []
+    errors = grounding.validate_claim_audit(storyboard, bundle, invalid)
+    assert any("exact scraper quote" in error for error in errors)

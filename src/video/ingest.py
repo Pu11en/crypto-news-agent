@@ -44,6 +44,7 @@ def probe(path: str | Path) -> MediaInfo:
         check=True,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     payload = json.loads(result.stdout)
     streams = payload.get("streams", [])
@@ -63,7 +64,23 @@ def probe(path: str | Path) -> MediaInfo:
     )
 
 
-def validate_source(path: str | Path) -> MediaInfo:
+def validate_upload_size(file_size: int | None, max_megabytes: int) -> None:
+    if file_size is None:
+        return
+    maximum = max_megabytes * 1024 * 1024
+    if file_size > maximum:
+        raise ValueError(
+            f"Recording is larger than the {max_megabytes} MB cloud Bot API limit. "
+            "Send it as a Telegram video so Telegram can compress it."
+        )
+
+
+def validate_source(
+    path: str | Path,
+    *,
+    max_pixels: int = 3840 * 2160,
+    max_fps: float = 120.0,
+) -> MediaInfo:
     info = probe(path)
     if not info.has_video:
         raise ValueError("Recording has no video stream")
@@ -71,6 +88,10 @@ def validate_source(path: str | Path) -> MediaInfo:
         raise ValueError("Recording has no audio stream")
     if info.duration <= 0:
         raise ValueError("Recording has no playable duration")
+    if info.width * info.height > max_pixels:
+        raise ValueError("Recording resolution is larger than the supported 4K-class input limit")
+    if info.fps <= 0 or info.fps > max_fps:
+        raise ValueError(f"Recording frame rate must be between 1 and {max_fps:g} fps")
     return info
 
 
@@ -119,6 +140,7 @@ def stage_for_render(source: str | Path, destination: str | Path, fps: int = 30)
         ],
         check=True,
         capture_output=True,
+        timeout=600,
     )
     staged = validate_source(output)
     if abs(staged.duration - source_info.duration) > max(1 / fps, 0.05):
