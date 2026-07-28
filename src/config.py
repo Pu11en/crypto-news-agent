@@ -73,7 +73,7 @@ def load() -> Settings:
         telegram_bot_token=_required("TELEGRAM_BOT_TOKEN"),
         allowed_user_ids=tuple(_user_ids("ALLOWED_USER_IDS")),
         db_path=os.environ.get("DB_PATH", "/data/agent.db"),
-        video_work_dir=os.environ.get("VIDEO_WORK_DIR", "data/video-jobs"),
+        video_work_dir=os.environ.get("VIDEO_WORK_DIR", "/data/video-jobs"),
         video_max_seconds=_int("VIDEO_MAX_SECONDS", 90),
         video_max_upload_mb=_int("VIDEO_MAX_UPLOAD_MB", 20),
         video_artifact_retention_hours=_int("VIDEO_ARTIFACT_RETENTION_HOURS", 72),

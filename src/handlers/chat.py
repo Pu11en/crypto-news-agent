@@ -87,6 +87,11 @@ async def _route(
 ) -> None:
     user_id = update.effective_user.id
     text = update.message.text or ""
+    scrape_intent = news.parse_scrape_intent(text)
+    if scrape_intent is not None:
+        await news.handle_scrape_intent(update, scrape_intent)
+        return
+
     user_sess = sess.load(user_id)
 
     if user_sess.state == sess.AWAITING_PICK:
@@ -101,9 +106,7 @@ async def _route(
 
         await video.handle_revision_text(update, _, settings, llm)
     elif user_sess.state == sess.AWAITING_VIDEO:
-        await update.message.reply_text(
-            "This video job is active. Upload the OBS MP4 or use the buttons on the current status message."
-        )
+        await _handle_chat(update, llm, user_sess, text)
     else:
         await _handle_chat(update, llm, user_sess, text)
 

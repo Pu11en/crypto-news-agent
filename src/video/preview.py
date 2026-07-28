@@ -12,6 +12,8 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from video.hyperframes_cli import command as hyperframes
+
 
 class _QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -92,7 +94,7 @@ def capture(public_dir: str | Path, storyboard: dict, review_dir: str | Path) ->
         output = ""
         for attempt in range(3):
             result = subprocess.run(
-                ["npx", "--yes", "hyperframes@0.7.76", "snapshot", "public", "--at", f"{hold:.3f}"],
+                hyperframes("snapshot", "public", "--at", f"{hold:.3f}"),
                 cwd=public.parent,
                 check=False,
                 capture_output=True,

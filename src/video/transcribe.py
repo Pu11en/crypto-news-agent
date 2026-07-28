@@ -4,6 +4,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from video.hyperframes_cli import command as hyperframes
+
 
 def extract_audio(video_path: str | Path, audio_path: str | Path) -> Path:
     destination = Path(audio_path)
@@ -25,10 +27,9 @@ def run(audio_path: str | Path, work_dir: str | Path, model: str = "small.en") -
     work = Path(work_dir)
     work.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        [
-            "npx", "--yes", "hyperframes@0.7.76", "transcribe", str(audio_path),
-            "-d", str(work), "--json", "--model", model,
-        ],
+        hyperframes(
+            "transcribe", str(audio_path), "-d", str(work), "--json", "--model", model
+        ),
         check=True,
         capture_output=True,
         text=True,

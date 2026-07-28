@@ -46,7 +46,7 @@ def test_second_news_request_is_rejected_while_scrape_runs(isolated_db):
     ]
 
 
-def test_news_is_rejected_while_video_job_is_active(isolated_db):
+def test_news_cancels_preupload_job_and_starts_new_scrape(isolated_db, monkeypatch):
     factory = db.session()
     with factory() as s:
         script = db.Script(
@@ -59,17 +59,27 @@ def test_news_is_rejected_while_video_job_is_active(isolated_db):
         s.add(script)
         s.commit()
         script_id = script.id
-    jobs.create_for_script(992, 9920, script_id)
+    active = jobs.create_for_script(992, 9920, script_id)
     update = SimpleNamespace(
         effective_user=SimpleNamespace(id=992),
         message=FakeMessage(),
     )
 
+    monkeypatch.setattr(
+        news,
+        "_scrape_and_curate",
+        lambda settings, llm, user_id: {
+            "stories": [],
+            "tweets_fetched": 0,
+            "accounts_hit": 0,
+            "run_id": "new-direction",
+        },
+    )
     asyncio.run(news._news(update, None, SimpleNamespace(scrape_hours=24), object()))
 
-    assert update.message.replies == [
-        "A video job is still active. Finish, retry, or cancel it before starting /news again."
-    ]
+    assert jobs.get(active.id).state == jobs.CANCELLED
+    assert any("Scraping the last" in reply for reply in update.message.replies)
+    assert sess.load(992).state == sess.IDLE
 
 
 def test_failed_status_reply_does_not_wedge_global_scrape_lock(isolated_db):

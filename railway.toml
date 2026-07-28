@@ -1,12 +1,9 @@
-[deploy]
-# Healthcheck: the bot exposes no HTTP port (it's long-polling Telegram),
-# so we just confirm the process is up. Railway treats a non-zero exit as
-# a failed deploy. `python -c "import sys"` is a trivially-true probe —
-# replace with a real endpoint if one is added later.
-healthcheckPath = ""
-healthcheckTimeout = 30
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
-[deploy.restart]
-# Bots should always restart on crash.
-policy = "ON_FAILURE"
-maxRetries = 5
+[deploy]
+# Long-polling Telegram bot: no HTTP healthcheck. The image entrypoint performs
+# dependency checks before starting Python, and Railway monitors the process.
+restartPolicyType = "ALWAYS"
+restartPolicyMaxRetries = 10

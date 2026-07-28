@@ -5,6 +5,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from video.hyperframes_cli import command as hyperframes
 from video.ingest import probe
 
 
@@ -55,7 +56,7 @@ def _stream_timing(output_path: str | Path) -> dict[str, dict[str, float]]:
 def lint(public_dir: str | Path) -> str:
     public = Path(public_dir)
     result = subprocess.run(
-        ["npx", "--yes", "hyperframes@0.7.76", "lint", "public"],
+        hyperframes("lint", "public"),
         cwd=public.parent,
         check=False,
         capture_output=True,
@@ -75,10 +76,18 @@ def render(public_dir: str | Path, output_path: str | Path) -> Path:
     raw = destination.with_name(destination.stem + "-raw.mp4")
     lint(public)
     subprocess.run(
-        [
-            "npx", "--yes", "hyperframes@0.7.76", "render", "public",
-            "--skill=talking-head-recut", "-o", str(raw), "--fps", "30",
-        ],
+        hyperframes(
+            "render",
+            "public",
+            "--skill=talking-head-recut",
+            "-o",
+            str(raw),
+            "--fps",
+            "30",
+            "--workers",
+            "1",
+            "--low-memory-mode",
+        ),
         cwd=public.parent,
         check=True,
         timeout=3600,

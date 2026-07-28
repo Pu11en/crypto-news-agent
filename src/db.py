@@ -16,13 +16,11 @@ from pathlib import Path
 from sqlalchemy import (
     Boolean,
     JSON,
-
     DateTime,
     Integer,
     String,
     Text,
     create_engine,
-
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
@@ -113,6 +111,7 @@ class Run(Base):
     __tablename__ = "runs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )
@@ -184,6 +183,22 @@ def init_engine(db_path: str):
         future=True,
     )
     Base.metadata.create_all(_engine)
+
+    # create_all() does not alter an existing SQLite table. Keep this migration
+    # idempotent so older bot databases gain scrape ownership without exposing
+    # historical unowned runs to arbitrary users.
+    with _engine.begin() as conn:
+        from sqlalchemy import text
+
+        run_columns = {
+            str(row[1]) for row in conn.execute(text("PRAGMA table_info(runs)"))
+        }
+        if "user_id" not in run_columns:
+            conn.execute(text("ALTER TABLE runs ADD COLUMN user_id INTEGER"))
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_runs_user_id ON runs (user_id)")
+        )
+
     _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
 
     # Enable WAL for better concurrent-read performance.

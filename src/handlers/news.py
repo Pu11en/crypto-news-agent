@@ -11,12 +11,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from sqlalchemy import func
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+)
 
 import db
 import prompts
@@ -50,12 +58,15 @@ def register(
     )
     app.add_handler(CommandHandler("start", _start, filters=user_filter))
     app.add_handler(CommandHandler("help", _help, filters=user_filter))
+    app.add_handler(CommandHandler("scrapes", _scrapes, filters=user_filter))
+    app.add_handler(CallbackQueryHandler(_scrape_callback, pattern=r"^scrape:"))
 
 
 async def _start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Crypto news agent ready.\n\n"
         "/news : scrape Twitter and build a video script\n"
+        "/scrapes : browse your saved scrapes\n"
         "/done : save the current script\n"
         "/cancel : discard and exit\n"
         "/credits : check Xquik credit balance\n"
@@ -69,6 +80,10 @@ async def _help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     await _start(update, _)
 
 
+async def _scrapes(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+    await _reply_saved_scrapes(update.message, update.effective_user.id)
+
+
 async def _news(
     update: Update,
     _: ContextTypes.DEFAULT_TYPE,
@@ -77,24 +92,19 @@ async def _news(
 ) -> None:
     global _NEWS_IN_PROGRESS
     user_id = update.effective_user.id
-    active_video = jobs.get_active_for_user(user_id)
-    if active_video is not None:
-        await update.message.reply_text(
-            "A video job is still active. Finish, retry, or cancel it before starting /news again."
-        )
-        return
-    # Lock so a second /news can't collide with a running one.
-    current = sess.load(user_id)
-    if current.state in (sess.SCRAPING, sess.AWAITING_PICK, sess.SCRIPT_DRAFT):
-        await update.message.reply_text(
-            "You're already in a flow. Send /cancel first if you want to restart."
-        )
-        return
     if _NEWS_IN_PROGRESS:
         await update.message.reply_text(
             "Another news scrape is already running. Try again after it finishes."
         )
         return
+
+    # Starting a new scrape is an explicit direction change. A job that has not
+    # received an upload can be cancelled immediately; later-stage work remains
+    # independent and can finish or be cancelled from its own controls.
+    active_video = jobs.get_active_for_user(user_id)
+    if active_video is not None and active_video.state == jobs.AWAITING_VIDEO:
+        jobs.mark_cancelled(active_video.id)
+    sess.reset(user_id)
 
     _NEWS_IN_PROGRESS = True
     sess.set_state(user_id, sess.SCRAPING)
@@ -179,7 +189,7 @@ def _scrape_and_curate(
     )
 
     # Persist tweets + run row.
-    _persist_tweets(run_id, tweets, accounts, errors)
+    _persist_tweets(user_id, run_id, tweets, accounts, errors)
 
     accounts_hit = len(accounts) - len(errors)
     # Xquik bills tweet search at 1 credit per tweet returned, so the
@@ -221,6 +231,7 @@ def _scrape_and_curate(
 
 
 def _persist_tweets(
+    user_id: int,
     run_id: str,
     tweets: list[RawTweet],
     accounts: list,
@@ -246,6 +257,7 @@ def _persist_tweets(
         s.add(
             db.Run(
                 id=run_id,
+                user_id=user_id,
                 finished_at=datetime.now(timezone.utc),
                 tweets_fetched=len(tweets),
                 accounts_hit=len(accounts) - len(errors),
@@ -308,6 +320,407 @@ def _format_top_stories(
         "Reply with story numbers (e.g. `1,3,5`) or `auto` to use all of them."
     )
     return "\n".join(lines) + cost_note
+
+
+# ---------------------------------------------------------- saved scrape library
+
+_SCRAPE_LIST_PATTERNS = (
+    re.compile(
+        r"\b(?:show|list|view|see)\s+(?:me\s+)?(?:my\s+)?"
+        r"(?:saved\s+)?scrapes?\b"
+    ),
+    re.compile(r"\bwhat\s+(?:saved\s+)?scrapes?\s+do\s+i\s+have\b"),
+)
+_SCRAPE_RAW_PATTERN = re.compile(
+    r"\b(?:show|view|open|see)\s+(?:the\s+)?(?:full|raw)\s+scrape\s+#?(\d+)\b"
+)
+_SCRAPE_OPEN_PATTERN = re.compile(
+    r"\b(?:open|view|show|see|return\s+to|go\s+back\s+to)\s+"
+    r"(?:the\s+)?(?:saved\s+)?scrape\s+#?(\d+)\b"
+)
+_SCRAPE_LAST_PATTERN = re.compile(
+    r"\b(?:open|view|show|see|return\s+to|go\s+back\s+to)\s+"
+    r"(?:the\s+)?(?:last|latest|newest)(?:\s+saved)?\s+scrape\b"
+)
+
+
+def parse_scrape_intent(text: str) -> tuple[str, int | None] | None:
+    """Recognize common saved-scrape navigation requests."""
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
+    raw_match = _SCRAPE_RAW_PATTERN.search(normalized)
+    if raw_match:
+        return ("raw", int(raw_match.group(1)))
+    if _SCRAPE_LAST_PATTERN.search(normalized):
+        return ("open", 1)
+    open_match = _SCRAPE_OPEN_PATTERN.search(normalized)
+    if open_match:
+        return ("open", int(open_match.group(1)))
+    if any(pattern.search(normalized) for pattern in _SCRAPE_LIST_PATTERNS):
+        return ("list", None)
+    return None
+
+
+def list_saved_scrapes(user_id: int, limit: int = 10) -> list[dict]:
+    """Return newest-first scrape summaries owned by one Telegram user."""
+    bounded_limit = max(1, min(int(limit), 50))
+    factory = db.session()
+    with factory() as s:
+        rows = (
+            s.query(
+                db.Run,
+                func.count(func.distinct(db.Story.id)).label("story_count"),
+            )
+            .outerjoin(db.Story, db.Story.run_id == db.Run.id)
+            .filter(db.Run.user_id == user_id)
+            .group_by(db.Run.id)
+            .order_by(db.Run.started_at.desc(), db.Run.id.desc())
+            .limit(bounded_limit)
+            .all()
+        )
+        return [
+            {
+                "run_id": run.id,
+                "started_at": run.started_at,
+                "finished_at": run.finished_at,
+                "tweets_fetched": run.tweets_fetched,
+                "accounts_hit": run.accounts_hit,
+                "story_count": int(story_count),
+            }
+            for run, story_count in rows
+        ]
+
+
+def raw_scrape_page(
+    user_id: int,
+    run_id: str,
+    page: int = 0,
+    page_size: int = 5,
+) -> dict:
+    """Return one bounded page of full raw posts from a user-owned scrape."""
+    page = max(0, int(page))
+    page_size = max(1, min(int(page_size), 20))
+    factory = db.session()
+    with factory() as s:
+        owned_run = (
+            s.query(db.Run)
+            .filter(db.Run.id == str(run_id), db.Run.user_id == user_id)
+            .first()
+        )
+        if owned_run is None:
+            raise ValueError("Saved scrape not found")
+        query = (
+            s.query(db.Tweet)
+            .filter(db.Tweet.run_id == owned_run.id)
+            .order_by(db.Tweet.created_at.desc(), db.Tweet.id.desc())
+        )
+        total = query.count()
+        pages = max(1, math.ceil(total / page_size))
+        page = min(page, pages - 1)
+        posts = query.offset(page * page_size).limit(page_size).all()
+        return {
+            "run_id": owned_run.id,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+            "total": total,
+            "has_previous": page > 0,
+            "has_next": page + 1 < pages,
+            "posts": [
+                {
+                    "tweet_id": post.tweet_id,
+                    "username": post.username,
+                    "text": post.text,
+                    "created_at": post.created_at,
+                    "url": post.url,
+                    "tier": post.tier,
+                    "tags": post.tags,
+                }
+                for post in posts
+            ],
+        }
+
+
+def _resolve_saved_run(user_id: int, reference: int | str) -> db.Run:
+    factory = db.session()
+    with factory() as s:
+        query = s.query(db.Run).filter(db.Run.user_id == user_id)
+        if isinstance(reference, int):
+            if reference < 1:
+                raise ValueError("Saved scrape not found")
+            row = (
+                query.order_by(db.Run.started_at.desc(), db.Run.id.desc())
+                .offset(reference - 1)
+                .first()
+            )
+        else:
+            row = query.filter(db.Run.id == str(reference)).first()
+        if row is None:
+            raise ValueError("Saved scrape not found")
+        s.expunge(row)
+        return row
+
+
+def open_saved_scrape(user_id: int, reference: int | str) -> dict:
+    """Restore a user-owned scrape as the active story-picking context."""
+    run = _resolve_saved_run(user_id, reference)
+    factory = db.session()
+    with factory() as s:
+        stories = (
+            s.query(db.Story)
+            .filter(db.Story.run_id == run.id)
+            .order_by(db.Story.rank, db.Story.id)
+            .all()
+        )
+        story_data = [
+            {
+                "id": story.id,
+                "rank": story.rank,
+                "headline": story.headline,
+                "summary": story.summary,
+                "tweet_ids": list(story.tweet_ids or []),
+                "score": story.score,
+            }
+            for story in stories
+        ]
+
+    if not story_data:
+        raise ValueError("Saved scrape has no curated stories to reopen")
+
+    active_video = jobs.get_active_for_user(user_id)
+    if active_video is not None and active_video.state == jobs.AWAITING_VIDEO:
+        jobs.mark_cancelled(active_video.id)
+
+    sess.set_run(user_id, run.id, [story["id"] for story in story_data])
+    return {
+        "run_id": run.id,
+        "started_at": run.started_at,
+        "tweets_fetched": run.tweets_fetched,
+        "accounts_hit": run.accounts_hit,
+        "stories": story_data,
+    }
+
+
+def _scrape_callback_data(
+    action: str,
+    run_id: str | None = None,
+    page: int | None = None,
+) -> str:
+    parts = ["scrape", action]
+    if run_id is not None:
+        parts.append(run_id)
+    if page is not None:
+        parts.append(str(page))
+    data = ":".join(parts)
+    if len(data.encode("utf-8")) > 64:
+        raise ValueError("Saved scrape ID is too long for Telegram callback data")
+    return data
+
+
+def _saved_scrapes_keyboard(saved: list[dict]) -> InlineKeyboardMarkup:
+    rows = []
+    for index, item in enumerate(saved, start=1):
+        run_id = str(item["run_id"])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"Open {index}",
+                    callback_data=_scrape_callback_data("open", run_id),
+                ),
+                InlineKeyboardButton(
+                    f"Raw posts {index}",
+                    callback_data=_scrape_callback_data("raw", run_id, 0),
+                ),
+            ]
+        )
+    return InlineKeyboardMarkup(rows)
+
+
+def _raw_scrape_keyboard(raw: dict) -> InlineKeyboardMarkup:
+    run_id = str(raw["run_id"])
+    page = int(raw["page"])
+    navigation = []
+    if raw["has_previous"]:
+        navigation.append(
+            InlineKeyboardButton(
+                "Previous",
+                callback_data=_scrape_callback_data("raw", run_id, page - 1),
+            )
+        )
+    if raw["has_next"]:
+        navigation.append(
+            InlineKeyboardButton(
+                "Next",
+                callback_data=_scrape_callback_data("raw", run_id, page + 1),
+            )
+        )
+    rows = [navigation] if navigation else []
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "Open stories",
+                callback_data=_scrape_callback_data("open", run_id),
+            ),
+            InlineKeyboardButton(
+                "All scrapes", callback_data=_scrape_callback_data("list")
+            ),
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+def _opened_scrape_keyboard(run_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "Raw posts",
+                    callback_data=_scrape_callback_data("raw", run_id, 0),
+                ),
+                InlineKeyboardButton(
+                    "All scrapes", callback_data=_scrape_callback_data("list")
+                ),
+            ]
+        ]
+    )
+
+
+def _format_saved_scrapes(saved: list[dict]) -> str:
+    lines = ["Your saved scrapes, newest first:", ""]
+    for index, item in enumerate(saved, start=1):
+        started = item["started_at"]
+        when = started.strftime("%Y-%m-%d %H:%M UTC") if started else "unknown time"
+        lines.append(
+            f"{index}. {when} | {item['tweets_fetched']} posts | "
+            f"{item['story_count']} stories"
+        )
+    lines.append("")
+    lines.append("Open one to pick from its curated stories, or view every raw post.")
+    return "\n".join(lines)
+
+
+def _format_opened_scrape(opened: dict) -> str:
+    lines = ["Saved scrape opened. Choose stories for a new script:", ""]
+    for story in opened["stories"]:
+        lines.append(f"{story['rank']}. {story['headline']}")
+        lines.append(str(story["summary"]))
+        lines.append("")
+    lines.append("Reply with story numbers such as 1,3,5, or say auto for all.")
+    return "\n".join(lines)
+
+
+def _format_raw_scrape(raw: dict) -> str:
+    lines = [
+        f"Raw posts for scrape {raw['run_id']}",
+        f"Page {raw['page'] + 1} of {raw['pages']} | {raw['total']} posts",
+        "",
+    ]
+    if not raw["posts"]:
+        lines.append("This scrape contains no raw posts.")
+    for offset, post in enumerate(raw["posts"], start=1):
+        absolute = raw["page"] * raw["page_size"] + offset
+        lines.append(f"{absolute}. @{post['username']}")
+        lines.append(str(post["text"]))
+        if post["url"]:
+            lines.append(str(post["url"]))
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def _telegram_chunks(text: str, limit: int = 3900) -> list[str]:
+    """Split without truncating content so every raw post remains visible."""
+    if len(text) <= limit:
+        return [text]
+    chunks = []
+    remaining = text
+    while remaining:
+        split_at = min(limit, len(remaining))
+        if split_at < len(remaining):
+            newline = remaining.rfind("\n", 0, split_at)
+            if newline > limit // 2:
+                split_at = newline + 1
+        chunks.append(remaining[:split_at])
+        remaining = remaining[split_at:]
+    return chunks
+
+
+async def _reply_saved_scrapes(message, user_id: int) -> None:
+    saved = list_saved_scrapes(user_id)
+    if not saved:
+        await message.reply_text("You do not have any saved scrapes yet. Send /news to make one.")
+        return
+    await message.reply_text(
+        _format_saved_scrapes(saved), reply_markup=_saved_scrapes_keyboard(saved)
+    )
+
+
+async def _reply_opened_scrape(message, user_id: int, reference: int | str) -> None:
+    opened = open_saved_scrape(user_id, reference)
+    await message.reply_text(
+        _format_opened_scrape(opened),
+        reply_markup=_opened_scrape_keyboard(str(opened["run_id"])),
+    )
+
+
+async def _reply_raw_scrape(
+    message,
+    user_id: int,
+    run_id: str,
+    page: int = 0,
+) -> None:
+    raw = raw_scrape_page(user_id, run_id, page=page)
+    chunks = _telegram_chunks(_format_raw_scrape(raw))
+    for index, chunk in enumerate(chunks):
+        markup = _raw_scrape_keyboard(raw) if index == len(chunks) - 1 else None
+        await message.reply_text(chunk, reply_markup=markup)
+
+
+async def handle_scrape_intent(
+    update: Update,
+    intent: tuple[str, int | None],
+) -> None:
+    """Handle saved-scrape language before any session-state routing."""
+    action, reference = intent
+    user_id = update.effective_user.id
+    try:
+        if action == "list":
+            await _reply_saved_scrapes(update.message, user_id)
+        elif action == "open" and reference is not None:
+            await _reply_opened_scrape(update.message, user_id, reference)
+        elif action == "raw" and reference is not None:
+            run = _resolve_saved_run(user_id, reference)
+            await _reply_raw_scrape(update.message, user_id, run.id)
+        else:
+            raise ValueError("Saved scrape request was not understood")
+    except ValueError as exc:
+        await update.message.reply_text(str(exc))
+
+
+async def _scrape_callback(
+    update: Update,
+    _: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    query = update.callback_query
+    if query is None or query.message is None:
+        return
+    await query.answer()
+    parts = (query.data or "").split(":")
+    user_id = update.effective_user.id
+    try:
+        if parts == ["scrape", "list"]:
+            await _reply_saved_scrapes(query.message, user_id)
+        elif len(parts) == 3 and parts[:2] == ["scrape", "open"]:
+            await _reply_opened_scrape(query.message, user_id, parts[2])
+        elif len(parts) == 4 and parts[:2] == ["scrape", "raw"]:
+            await _reply_raw_scrape(
+                query.message,
+                user_id,
+                parts[2],
+                page=max(0, int(parts[3])),
+            )
+        else:
+            raise ValueError("Saved scrape control is invalid or expired")
+    except (TypeError, ValueError) as exc:
+        await query.message.reply_text(str(exc))
 
 
 # ---------------------------------------------------------------- pick parsing
