@@ -34,9 +34,8 @@ from telegram.ext import (  # noqa: E402
 
 import config  # noqa: E402
 import db  # noqa: E402
-from handlers import chat, commands, credits, news, video  # noqa: E402
+from handlers import chat, credits, news  # noqa: E402
 from llm import LLMClient  # noqa: E402
-from video import pipeline  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,9 +53,14 @@ def main() -> None:
 
     # Initialise DB before the LLM, since handlers depend on it.
     db.init_engine(settings.db_path)
-    removed = pipeline.prune_artifacts(settings)
-    if removed:
-        log.info("Pruned %d stale video job directories", len(removed))
+    if settings.bot_mode == "full":
+        from video import pipeline
+
+        removed = pipeline.prune_artifacts(settings)
+        if removed:
+            log.info("Pruned %d stale video job directories", len(removed))
+    else:
+        log.info("BOT_MODE=scraper: script and video features are disabled")
 
     llm = LLMClient(settings)
 
@@ -81,8 +85,11 @@ def main() -> None:
         )
 
     news.register(app, settings, llm, user_filter)
-    commands.register(app, user_filter, settings)
-    video.register(app, settings, llm, user_filter)
+    if settings.bot_mode == "full":
+        from handlers import commands, video
+
+        commands.register(app, user_filter, settings)
+        video.register(app, settings, llm, user_filter)
     chat.register(app, settings, llm, user_filter)
     credits.register(app, settings, user_filter)
 

@@ -87,6 +87,23 @@ def test_saved_scrape_library_is_user_scoped_and_keeps_full_raw_posts(isolated_d
     assert raw["posts"][0]["text"].endswith("source post.")
 
 
+def test_opened_story_includes_source_link_and_post_timestamp(isolated_db):
+    _seed_scrape(102, "sourced-run")
+
+    opened = news.open_saved_scrape(102, "sourced-run")
+    source = opened["stories"][0]["source_posts"][0]
+    formatted = news._format_opened_scrape(opened)
+
+    assert source["tweet_id"] == "sourced-run-1"
+    assert source["username"] == "alpha"
+    assert source["url"] == "https://x.com/alpha/status/sourced-run-1"
+    assert "Source posts:" in formatted
+    assert "@alpha" in formatted
+    assert news._format_source_timestamp(source["created_at"]) in formatted
+    assert "UTC" in formatted
+    assert source["url"] in formatted
+
+
 def test_new_scrape_run_is_persisted_with_requesting_user(isolated_db):
     news._persist_tweets(212, "owned-run", [], [], [])
 
@@ -109,7 +126,7 @@ def test_raw_page_clamps_forged_page_and_chunks_without_data_loss(isolated_db):
     assert all(len(chunk) <= 200 for chunk in chunks)
 
 
-def test_opening_saved_scrape_cancels_preupload_job_and_restores_story_pick(isolated_db):
+def test_opening_saved_scrape_protects_active_video_job(isolated_db):
     _seed_scrape(303, "saved-run")
     factory = db.session()
     with factory() as s:
@@ -117,7 +134,7 @@ def test_opening_saved_scrape_cancels_preupload_job_and_restores_story_pick(isol
         script = db.Script(
             session_id="303",
             version=1,
-            body="Old locked script",
+            body="Old locked talking notes",
             story_ids=[story.id],
             is_final=True,
         )
@@ -127,15 +144,15 @@ def test_opening_saved_scrape_cancels_preupload_job_and_restores_story_pick(isol
     active = jobs.create_for_script(303, 303, script_id)
     sess.set_state(303, sess.AWAITING_VIDEO)
 
-    opened = news.open_saved_scrape(303, 1)
+    try:
+        news.open_saved_scrape(303, 1)
+    except ValueError as exc:
+        assert "protected" in str(exc).lower()
+    else:
+        raise AssertionError("active video job was not protected")
 
-    assert opened["run_id"] == "saved-run"
-    assert jobs.get(active.id).state == jobs.CANCELLED
-    current = sess.load(303)
-    assert current.state == sess.AWAITING_PICK
-    assert current.run_id == "saved-run"
-    assert len(current.story_ids) == 1
-
+    assert jobs.get(active.id).state == jobs.AWAITING_VIDEO
+    assert sess.load(303).state == sess.AWAITING_VIDEO
 
 def test_user_cannot_open_another_users_saved_scrape(isolated_db):
     _seed_scrape(404, "private-run")
@@ -260,7 +277,7 @@ def test_raw_scrape_callback_returns_requested_page(isolated_db):
     assert query.message.replies[-1][1]["reply_markup"] is not None
 
 
-def test_saved_scrape_navigation_preempts_awaiting_video_state(isolated_db):
+def test_saved_scrape_navigation_cannot_replace_active_video(isolated_db):
     _seed_scrape(608, "route-run")
     factory = db.session()
     with factory() as s:
@@ -268,7 +285,7 @@ def test_saved_scrape_navigation_preempts_awaiting_video_state(isolated_db):
         script = db.Script(
             session_id="608",
             version=1,
-            body="Old approved script",
+            body="Old approved talking notes",
             story_ids=[story.id],
             is_final=True,
         )
@@ -289,10 +306,9 @@ def test_saved_scrape_navigation_preempts_awaiting_video_state(isolated_db):
 
     asyncio.run(chat._route(update, None, SimpleNamespace(), LLMShouldNotRun()))
 
-    assert jobs.get(active.id).state == jobs.CANCELLED
-    assert sess.load(608).state == sess.AWAITING_PICK
-    assert "Saved scrape opened" in message.replies[0][0]
-
+    assert jobs.get(active.id).state == jobs.AWAITING_VIDEO
+    assert sess.load(608).state == sess.AWAITING_VIDEO
+    assert "protected" in message.replies[0][0].lower()
 
 def test_unrelated_message_is_normal_chat_while_awaiting_video(isolated_db):
     sess.set_state(609, sess.AWAITING_VIDEO)

@@ -28,6 +28,7 @@ from telegram.ext import (
 
 import db
 import prompts
+import reporting
 from accounts import load_accounts
 from config import Settings
 from handlers import session as sess
@@ -40,7 +41,11 @@ log = logging.getLogger("agent.news")
 # Cap concurrency on the scrape : Xquik tolerates ~10 req/s.
 _SCRAPE_WORKERS = 8
 _NEWS_IN_PROGRESS = False
-SCRIPT_BANNER = "📝 *Script draft* (v%d)\n\n%s\n\n_Talk to me to refine it, or_ /done _to save,_ /cancel _to discard._"
+SCRIPT_BANNER = "🎙️ *Talking notes* (v%d)\n\n%s\n\n_Talk to me to refine them, or_ /done _to lock,_ /cancel _to discard._"
+
+
+def _scraper_only(settings) -> bool:
+    return getattr(settings, "bot_mode", "full") == "scraper"
 
 
 def register(
@@ -56,32 +61,116 @@ def register(
             filters=user_filter,
         )
     )
-    app.add_handler(CommandHandler("start", _start, filters=user_filter))
-    app.add_handler(CommandHandler("help", _help, filters=user_filter))
-    app.add_handler(CommandHandler("scrapes", _scrapes, filters=user_filter))
-    app.add_handler(CallbackQueryHandler(_scrape_callback, pattern=r"^scrape:"))
-
-
-async def _start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "Crypto news agent ready.\n\n"
-        "/news : scrape Twitter and build a video script\n"
-        "/scrapes : browse your saved scrapes\n"
-        "/done : save the current script\n"
-        "/cancel : discard and exit\n"
-        "/credits : check Xquik credit balance\n"
-        "/account : full Xquik account summary\n"
-        "/help : this message\n\n"
-        "Or just talk to me normally."
+    app.add_handler(
+        CommandHandler(
+            "freshnews",
+            lambda u, c: _fresh_news(u, c, settings, llm),
+            filters=user_filter,
+        )
+    )
+    app.add_handler(
+        CommandHandler(
+            "start", lambda u, c: _start(u, c, settings), filters=user_filter
+        )
+    )
+    app.add_handler(
+        CommandHandler(
+            "help", lambda u, c: _help(u, c, settings), filters=user_filter
+        )
+    )
+    app.add_handler(
+        CommandHandler(
+            "scrapes",
+            lambda u, c: _scrapes(u, c, settings),
+            filters=user_filter,
+        )
+    )
+    app.add_handler(
+        CommandHandler(
+            "continue",
+            lambda u, c: _continue_news(u, c, settings),
+            filters=user_filter,
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            lambda u, c: _scrape_callback(u, c, settings),
+            pattern=r"^scrape:",
+        )
+    )
+    app.add_handler(
+        CallbackQueryHandler(
+            lambda u, c: _news_choice_callback(u, c, settings, llm),
+            pattern=r"^news-choice:",
+        )
     )
 
 
-async def _help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    await _start(update, _)
+async def _start(
+    update: Update, _: ContextTypes.DEFAULT_TYPE, settings: Settings
+) -> None:
+    if _scraper_only(settings):
+        body = (
+            "Crypto news research agent ready.\n\n"
+            "/news : review the latest scrape or request a new one\n"
+            "/freshnews : explicitly start a new scrape\n"
+            "/scrapes : browse every saved scrape and raw post\n"
+            "/continue : reopen the latest saved research\n"
+            "/credits : check Xquik credit balance\n"
+            "/account : full Xquik account summary\n"
+            "/help : this message\n\n"
+            "Automatic script generation, video uploads, captions, and rendering "
+            "are disabled. You can ask me to help draft or revise a script in chat."
+        )
+    else:
+        body = (
+            "Crypto news agent ready.\n\n"
+            "/news : resume the current scrape, notes, or video\n"
+            "/freshnews : start a new scrape after /cancel\n"
+            "/scrapes : browse your saved scrapes\n"
+            "/continue : reopen your current saved work\n"
+            "/done : lock the current talking notes\n"
+            "/cancel : discard and exit\n"
+            "/credits : check Xquik credit balance\n"
+            "/account : full Xquik account summary\n"
+            "/help : this message\n\n"
+            "Or just talk to me normally."
+        )
+    await update.message.reply_text(body)
 
 
-async def _scrapes(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    await _reply_saved_scrapes(update.message, update.effective_user.id)
+async def _help(
+    update: Update, _: ContextTypes.DEFAULT_TYPE, settings: Settings
+) -> None:
+    await _start(update, _, settings)
+
+
+async def _scrapes(
+    update: Update, _: ContextTypes.DEFAULT_TYPE, settings: Settings
+) -> None:
+    await _reply_saved_scrapes(
+        update.message,
+        update.effective_user.id,
+        research_only=_scraper_only(settings),
+    )
+
+
+async def _continue_news(
+    update: Update,
+    _: ContextTypes.DEFAULT_TYPE,
+    settings: Settings | None = None,
+) -> None:
+    """Reopen existing work without ever starting a scrape."""
+    user_id = update.effective_user.id
+    if not await _resume_existing_work(
+        update.message,
+        user_id,
+        research_only=_scraper_only(settings),
+    ):
+        await update.message.reply_text(
+            "There is no saved work to continue. Send /news to choose whether "
+            "to start a scrape."
+        )
 
 
 async def _news(
@@ -90,66 +179,456 @@ async def _news(
     settings: Settings,
     llm: LLMClient,
 ) -> None:
-    global _NEWS_IN_PROGRESS
-    user_id = update.effective_user.id
+    """Show the latest scrape and let the user continue it or request a new one."""
     if _NEWS_IN_PROGRESS:
         await update.message.reply_text(
             "Another news scrape is already running. Try again after it finishes."
         )
         return
 
-    # Starting a new scrape is an explicit direction change. A job that has not
-    # received an upload can be cancelled immediately; later-stage work remains
-    # independent and can finish or be cancelled from its own controls.
+    user_id = update.effective_user.id
+    saved = list_saved_scrapes(user_id, limit=1)
+    research_only = _scraper_only(settings)
+    active_video = None if research_only else jobs.get_active_for_user(user_id)
+    current = sess.load(user_id)
+    await _show_news_choice(
+        update.message,
+        user_id,
+        saved[0] if saved else None,
+        active_video,
+        current,
+        research_only=research_only,
+    )
+
+
+async def _fresh_news(
+    update: Update,
+    _: ContextTypes.DEFAULT_TYPE,
+    settings: Settings,
+    llm: LLMClient,
+) -> None:
+    """Explicit, credit-spending command for a brand-new scrape."""
+    await _start_fresh_news(
+        update.message, update.effective_user.id, settings, llm
+    )
+
+
+def _current_work_status(active_video, current) -> str:
+    if active_video is not None:
+        labels = {
+            jobs.AWAITING_VIDEO: "video waiting for your recording",
+            jobs.AWAITING_CAPTIONS: "recording uploaded; captions choice pending",
+            jobs.PLANNING: "storyboard processing",
+            jobs.STORYBOARD_REVIEW: "visual review pending",
+            jobs.RENDERING: "video rendering",
+            jobs.DELIVERING: "finished video delivery",
+            jobs.FAILED: f"video failed during {active_video.failed_stage or 'processing'}",
+        }
+        return labels.get(active_video.state, active_video.state.replace("_", " "))
+    labels = {
+        sess.AWAITING_PICK: "stories ready for selection",
+        sess.SCRIPT_DRAFT: "talking-notes draft in progress",
+        sess.AWAITING_VIDEO: "talking notes locked; recording pending",
+        sess.STORYBOARD_REVISION: "storyboard revision in progress",
+        sess.SCRAPING: "scrape in progress",
+        sess.IDLE: "no active draft or video",
+    }
+    return labels.get(current.state, current.state.replace("_", " "))
+
+
+def _news_choice_keyboard(
+    has_current_work: bool, has_saved_scrape: bool
+) -> InlineKeyboardMarkup:
+    rows = []
+    if has_current_work or has_saved_scrape:
+        continue_label = (
+            "♻️ Continue current" if has_current_work else "♻️ Use last scrape"
+        )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    continue_label, callback_data="news-choice:resume"
+                )
+            ]
+        )
+    fresh_label = (
+        "🆕 Start new scrape"
+        if has_saved_scrape
+        else "🆕 Start first scrape"
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                fresh_label, callback_data="news-choice:fresh"
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+async def _show_news_choice(
+    message,
+    user_id: int,
+    latest: dict | None,
+    active_video,
+    current,
+    research_only: bool = False,
+) -> None:
+    lines = ["🗞 Latest scrape information", ""]
+    if latest is None:
+        lines.append("No saved scrape metadata is available.")
+    else:
+        started = latest["started_at"]
+        when = (
+            started.strftime("%b %d, %Y at %I:%M %p UTC")
+            if started is not None
+            else "unknown time"
+        )
+        lines.extend(
+            [
+                f"Date: {when}",
+                f"Posts collected: {latest['tweets_fetched']}",
+                f"Accounts reached: {latest['accounts_hit']}",
+                f"Curated stories: {latest['story_count']}",
+            ]
+        )
+    has_saved_scrape = latest is not None
+    if research_only:
+        has_current_work = has_saved_scrape
+        status = (
+            "latest saved research is ready to review"
+            if has_saved_scrape
+            else "no saved scrape"
+        )
+    else:
+        has_current_work = active_video is not None or current.state != sess.IDLE
+        status = _current_work_status(active_video, current)
+    question = (
+        "Review this saved research, or explicitly request a new scrape?"
+        if research_only and has_saved_scrape
+        else (
+            "Continue with this work, or explicitly request a new scrape?"
+            if has_current_work or has_saved_scrape
+            else "No saved scrape exists. Start the first scrape?"
+        )
+    )
+    lines.extend(["", f"Current work: {status}", "", question])
+    await message.reply_text(
+        "\n".join(lines),
+        reply_markup=_news_choice_keyboard(
+            has_current_work, has_saved_scrape
+        ),
+    )
+
+
+async def _news_choice_callback(
+    update: Update,
+    _: ContextTypes.DEFAULT_TYPE,
+    settings: Settings,
+    llm: LLMClient,
+) -> None:
+    query = update.callback_query
+    if query is None or query.message is None:
+        return
+    action = (query.data or "").split(":", 1)[-1]
+    user_id = update.effective_user.id
+    log.info("News choice received: user=%s action=%s", user_id, action)
+    if action == "resume":
+        await query.answer("Opening your saved work…")
+    else:
+        await query.answer()
+
+    research_only = _scraper_only(settings)
+    if action == "resume":
+        if not await _resume_existing_work(
+            query.message, user_id, research_only=research_only
+        ):
+            await query.message.reply_text(
+                "There is no saved work to continue. Choose Start new scrape."
+            )
+        return
+
+    if action != "fresh":
+        await query.message.reply_text("That news choice is invalid or expired.")
+        return
+
+    if not research_only:
+        active_video = jobs.get_active_for_user(user_id)
+        current = sess.load(user_id)
+        if active_video is not None or current.state not in {
+            sess.IDLE,
+            sess.AWAITING_PICK,
+        }:
+            await query.message.reply_text(
+                "Your current notes or video are protected. Choose Continue current, "
+                "or send /cancel before requesting a new scrape."
+            )
+            return
+        if current.state == sess.AWAITING_PICK:
+            sess.reset(user_id)
+    await _start_fresh_news(query.message, user_id, settings, llm)
+
+
+def _resume_video_keyboard(job) -> InlineKeyboardMarkup:
+    if job.state == jobs.FAILED:
+        rows = [
+            [
+                InlineKeyboardButton(
+                    "🔄 Retry", callback_data=f"video:retry:{job.id}"
+                ),
+                InlineKeyboardButton(
+                    "❌ Cancel", callback_data=f"video:cancel:{job.id}"
+                ),
+            ]
+        ]
+    elif job.state == jobs.AWAITING_CAPTIONS:
+        rows = [
+            [
+                InlineKeyboardButton(
+                    "Captions on", callback_data=f"video:captions-on:{job.id}"
+                ),
+                InlineKeyboardButton(
+                    "Captions off", callback_data=f"video:captions-off:{job.id}"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "❌ Cancel", callback_data=f"video:cancel:{job.id}"
+                )
+            ],
+        ]
+    elif job.state == jobs.STORYBOARD_REVIEW:
+        rows = [
+            [
+                InlineKeyboardButton(
+                    "✅ Approve visuals",
+                    callback_data=f"video:approve-visuals:{job.id}",
+                ),
+                InlineKeyboardButton(
+                    "✏️ Revise visuals",
+                    callback_data=f"video:revise-visuals:{job.id}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "❌ Cancel", callback_data=f"video:cancel:{job.id}"
+                )
+            ],
+        ]
+    elif job.state == jobs.AWAITING_VIDEO:
+        rows = []
+    else:
+        rows = [
+            [
+                InlineKeyboardButton(
+                    "❌ Cancel", callback_data=f"video:cancel:{job.id}"
+                )
+            ]
+        ]
+    return InlineKeyboardMarkup(rows)
+
+
+async def _reply_active_video(message, active_video) -> None:
+    state_labels = {
+        jobs.AWAITING_VIDEO: "waiting for your recording",
+        jobs.AWAITING_CAPTIONS: "recording received; choose captions",
+        jobs.PLANNING: "building the storyboard",
+        jobs.STORYBOARD_REVIEW: "waiting for visual approval",
+        jobs.RENDERING: "rendering",
+        jobs.DELIVERING: "delivering the finished video",
+        jobs.FAILED: f"failed during {active_video.failed_stage or 'processing'}",
+    }
+    status = state_labels.get(active_video.state, active_video.state.replace("_", " "))
+    lines = [
+        "♻️ Resuming your current video — no new scrape was started.",
+        "",
+        f"Status: {status}",
+    ]
+
+    if active_video.state == jobs.AWAITING_VIDEO:
+        factory = db.session()
+        with factory() as s:
+            script = s.get(db.Script, active_video.script_id)
+            body = script.body if script is not None else ""
+        if body:
+            lines.extend(["", body])
+        lines.extend(["", "Upload your OBS MP4 when you are ready."])
+    elif active_video.state == jobs.FAILED:
+        lines.extend(
+            [
+                "",
+                "The same scrape, talking notes, recording, and completed artifacts "
+                "are still attached to this job.",
+            ]
+        )
+    else:
+        lines.extend(["", "Your existing scrape and talking notes are protected."])
+
+    keyboard = _resume_video_keyboard(active_video)
+    await message.reply_text(
+        "\n".join(lines),
+        reply_markup=keyboard if keyboard.inline_keyboard else None,
+    )
+
+
+async def _resume_existing_work(
+    message, user_id: int, research_only: bool = False
+) -> bool:
+    if research_only:
+        saved = list_saved_scrapes(user_id, limit=1)
+        if not saved:
+            return False
+        if int(saved[0]["story_count"]) == 0:
+            await message.reply_text(
+                "Your latest saved scrape contains no curated stories. "
+                "Use /scrapes to inspect its raw posts."
+            )
+            return True
+        await message.reply_text(
+            "♻️ Reusing your latest saved research — no credits were spent."
+        )
+        await _reply_opened_scrape(
+            message,
+            user_id,
+            saved[0]["run_id"],
+            research_only=True,
+        )
+        return True
+
     active_video = jobs.get_active_for_user(user_id)
-    if active_video is not None and active_video.state == jobs.AWAITING_VIDEO:
-        jobs.mark_cancelled(active_video.id)
-    sess.reset(user_id)
+    if active_video is not None:
+        await _reply_active_video(message, active_video)
+        return True
+
+    user_sess = sess.load(user_id)
+    if user_sess.state == sess.SCRIPT_DRAFT and user_sess.current_script:
+        from handlers import video
+
+        await message.reply_text(
+            script_banner(user_sess.current_script, user_sess.script_version),
+            parse_mode="Markdown",
+            reply_markup=video.script_keyboard(current_script_id(user_id)),
+        )
+        return True
+
+    if user_sess.state == sess.AWAITING_VIDEO and user_sess.current_script:
+        await message.reply_text(
+            "♻️ Resuming your locked talking notes — no new scrape was started.\n\n"
+            f"{user_sess.current_script}\n\n"
+            "The video job is missing. Send /cancel to safely reset this incomplete "
+            "state, then reopen the same scrape with /news."
+        )
+        return True
+
+    if user_sess.state == sess.AWAITING_PICK and user_sess.run_id:
+        await _reply_opened_scrape(message, user_id, user_sess.run_id)
+        return True
+
+    saved = list_saved_scrapes(user_id, limit=1)
+    if saved:
+        if int(saved[0]["story_count"]) == 0:
+            await message.reply_text(
+                "♻️ Your latest saved scrape found no curated stories. No new "
+                "scrape was started. Use /freshnews only when you explicitly want "
+                "to spend credits on another scrape."
+            )
+            return True
+        await message.reply_text(
+            "♻️ Reusing your latest saved scrape — no credits were spent."
+        )
+        await _reply_opened_scrape(message, user_id, saved[0]["run_id"])
+        return True
+    return False
+
+
+async def _start_fresh_news(
+    message,
+    user_id: int,
+    settings: Settings,
+    llm: LLMClient,
+) -> None:
+    global _NEWS_IN_PROGRESS
+    if _NEWS_IN_PROGRESS:
+        await message.reply_text(
+            "Another news scrape is already running. Try again after it finishes."
+        )
+        return
+
+    research_only = _scraper_only(settings)
+    if not research_only:
+        active_video = jobs.get_active_for_user(user_id)
+        current = sess.load(user_id)
+        if active_video is not None or current.state != sess.IDLE:
+            await message.reply_text(
+                "Your current scrape, notes, or video is protected. Send /news to resume "
+                "it. If you truly want to abandon it, send /cancel first and then "
+                "/freshnews."
+            )
+            return
 
     _NEWS_IN_PROGRESS = True
-    sess.set_state(user_id, sess.SCRAPING)
+    if not research_only:
+        sess.set_state(user_id, sess.SCRAPING)
 
-    # Run the blocking scrape + curate in a thread; await from the event loop.
     try:
-        await update.message.reply_text(
-            f"🔍 Scraping the last {settings.scrape_hours}h across your account list…"
+        await message.reply_text(
+            f"🔍 Starting a NEW scrape of the last {settings.scrape_hours}h…"
         )
         result = await asyncio.to_thread(_scrape_and_curate, settings, llm, user_id)
     except XquikError as e:
-        sess.reset(user_id)
-        await update.message.reply_text(f"Scraper error: {e}")
+        if not research_only:
+            sess.reset(user_id)
+        await message.reply_text(f"Scraper error: {e}")
         return
     except LLMError as e:
-        sess.reset(user_id)
-        await update.message.reply_text(f"AI error during curation: {e}")
+        if not research_only:
+            sess.reset(user_id)
+        await message.reply_text(f"AI error during curation: {e}")
         return
     except Exception:
         log.exception("unexpected error during news scrape")
-        sess.reset(user_id)
-        await update.message.reply_text("Unexpected scraper error. Please try again later.")
+        if not research_only:
+            sess.reset(user_id)
+        await message.reply_text("Unexpected scraper error. Please try again later.")
         return
     finally:
         _NEWS_IN_PROGRESS = False
 
     if not result["stories"]:
-        await update.message.reply_text(
+        await message.reply_text(
             f"No newsworthy stories found in the last {settings.scrape_hours}h "
             f"(scraped {result['tweets_fetched']} tweets from "
             f"{result['accounts_hit']} accounts, ~{result['tweets_fetched']} credits). "
             "Try again later."
         )
-        sess.reset(user_id)
+        if not research_only:
+            sess.reset(user_id)
+        else:
+            await _reply_scrape_report(
+                message, user_id, result["run_id"], settings
+            )
         return
 
-    # Persist stories + pin them to the session.
     story_ids = _persist_stories(user_id, result["run_id"], result["stories"])
-    sess.set_run(user_id, result["run_id"], story_ids)
+    if research_only:
+        await _reply_opened_scrape(
+            message,
+            user_id,
+            result["run_id"],
+            research_only=True,
+        )
+        await _reply_scrape_report(
+            message, user_id, result["run_id"], settings
+        )
+        return
 
-    await update.message.reply_text(
-        _format_top_stories(result["stories"], result["tweets_fetched"], result["accounts_hit"]),
+    sess.set_run(user_id, result["run_id"], story_ids)
+    await message.reply_text(
+        _format_top_stories(
+            result["stories"], result["tweets_fetched"], result["accounts_hit"]
+        ),
         parse_mode="Markdown",
     )
-
 
 def _scrape_and_curate(
     settings: Settings, llm: LLMClient, user_id: int
@@ -460,8 +939,8 @@ def _resolve_saved_run(user_id: int, reference: int | str) -> db.Run:
         return row
 
 
-def open_saved_scrape(user_id: int, reference: int | str) -> dict:
-    """Restore a user-owned scrape as the active story-picking context."""
+def load_saved_scrape(user_id: int, reference: int | str) -> dict:
+    """Load a user-owned scrape without changing conversation or media state."""
     run = _resolve_saved_run(user_id, reference)
     factory = db.session()
     with factory() as s:
@@ -471,26 +950,53 @@ def open_saved_scrape(user_id: int, reference: int | str) -> dict:
             .order_by(db.Story.rank, db.Story.id)
             .all()
         )
-        story_data = [
-            {
-                "id": story.id,
-                "rank": story.rank,
-                "headline": story.headline,
-                "summary": story.summary,
-                "tweet_ids": list(story.tweet_ids or []),
-                "score": story.score,
-            }
+        source_ids = [
+            str(tweet_id)
             for story in stories
+            for tweet_id in (story.tweet_ids or [])
         ]
+        source_rows = (
+            s.query(db.Tweet)
+            .filter(
+                db.Tweet.run_id == run.id,
+                db.Tweet.tweet_id.in_(source_ids),
+            )
+            .all()
+            if source_ids
+            else []
+        )
+        source_map = {str(post.tweet_id): post for post in source_rows}
+        story_data = []
+        for story in stories:
+            tweet_ids = [str(value) for value in (story.tweet_ids or [])]
+            source_posts = []
+            for tweet_id in tweet_ids:
+                post = source_map.get(tweet_id)
+                if post is None:
+                    continue
+                source_posts.append(
+                    {
+                        "tweet_id": tweet_id,
+                        "username": post.username,
+                        "created_at": post.created_at,
+                        "text": post.text,
+                        "url": post.url,
+                    }
+                )
+            story_data.append(
+                {
+                    "id": story.id,
+                    "rank": story.rank,
+                    "headline": story.headline,
+                    "summary": story.summary,
+                    "tweet_ids": tweet_ids,
+                    "source_posts": source_posts,
+                    "score": story.score,
+                }
+            )
 
     if not story_data:
         raise ValueError("Saved scrape has no curated stories to reopen")
-
-    active_video = jobs.get_active_for_user(user_id)
-    if active_video is not None and active_video.state == jobs.AWAITING_VIDEO:
-        jobs.mark_cancelled(active_video.id)
-
-    sess.set_run(user_id, run.id, [story["id"] for story in story_data])
     return {
         "run_id": run.id,
         "started_at": run.started_at,
@@ -498,6 +1004,62 @@ def open_saved_scrape(user_id: int, reference: int | str) -> dict:
         "accounts_hit": run.accounts_hit,
         "stories": story_data,
     }
+
+
+def latest_research_context(user_id: int) -> str:
+    """Return grounded context from the latest saved scrape for research chat."""
+    saved = list_saved_scrapes(user_id, limit=1)
+    if not saved or int(saved[0]["story_count"]) == 0:
+        return "LATEST SAVED SCRAPE: none with curated stories."
+    opened = load_saved_scrape(user_id, saved[0]["run_id"])
+    lines = [
+        f"LATEST SAVED SCRAPE: {opened['run_id']}",
+        f"POSTS COLLECTED: {opened['tweets_fetched']}",
+        "",
+    ]
+    for story in opened["stories"]:
+        lines.append(f"STORY {story['rank']}: {story['headline']}")
+        lines.append(f"SUMMARY: {story['summary']}")
+        for source in story.get("source_posts", []):
+            timestamp = _format_source_timestamp(source.get("created_at"))
+            lines.append(
+                f"SOURCE @{source.get('username', 'unknown')} | {timestamp}"
+            )
+            source_text = str(source.get("text") or "").strip()
+            if source_text:
+                lines.append(f"POST: {source_text[:700]}")
+            if source.get("url"):
+                lines.append(f"URL: {source['url']}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def open_saved_scrape(user_id: int, reference: int | str) -> dict:
+    """Restore a user-owned scrape as the active story-picking context."""
+    opened = load_saved_scrape(user_id, reference)
+    active_video = jobs.get_active_for_user(user_id)
+    if active_video is not None:
+        raise ValueError(
+            "Your current video is protected. Send /news to resume it, or "
+            "send /cancel before opening another scrape."
+        )
+    current = sess.load(user_id)
+    if current.state in {
+        sess.SCRIPT_DRAFT,
+        sess.AWAITING_VIDEO,
+        sess.STORYBOARD_REVISION,
+    } and current.current_script:
+        raise ValueError(
+            "Your current talking notes are protected. Send /news to resume "
+            "them, or send /cancel before opening another scrape."
+        )
+
+    sess.set_run(
+        user_id,
+        opened["run_id"],
+        [story["id"] for story in opened["stories"]],
+    )
+    return opened
 
 
 def _scrape_callback_data(
@@ -516,22 +1078,32 @@ def _scrape_callback_data(
     return data
 
 
-def _saved_scrapes_keyboard(saved: list[dict]) -> InlineKeyboardMarkup:
+def _saved_scrapes_keyboard(
+    saved: list[dict], research_only: bool = False
+) -> InlineKeyboardMarkup:
     rows = []
     for index, item in enumerate(saved, start=1):
         run_id = str(item["run_id"])
-        rows.append(
-            [
+        row = [
+            InlineKeyboardButton(
+                f"Open {index}",
+                callback_data=_scrape_callback_data("open", run_id),
+            )
+        ]
+        if research_only:
+            row.append(
                 InlineKeyboardButton(
-                    f"Open {index}",
-                    callback_data=_scrape_callback_data("open", run_id),
-                ),
-                InlineKeyboardButton(
-                    f"Raw posts {index}",
-                    callback_data=_scrape_callback_data("raw", run_id, 0),
-                ),
-            ]
+                    f"PDF {index}",
+                    callback_data=_scrape_callback_data("pdf", run_id),
+                )
+            )
+        row.append(
+            InlineKeyboardButton(
+                f"Raw posts {index}",
+                callback_data=_scrape_callback_data("raw", run_id, 0),
+            )
         )
+        rows.append(row)
     return InlineKeyboardMarkup(rows)
 
 
@@ -568,23 +1140,36 @@ def _raw_scrape_keyboard(raw: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def _opened_scrape_keyboard(run_id: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
+def _opened_scrape_keyboard(
+    run_id: str, research_only: bool = False
+) -> InlineKeyboardMarkup:
+    rows = []
+    if research_only:
+        rows.append(
             [
                 InlineKeyboardButton(
-                    "Raw posts",
-                    callback_data=_scrape_callback_data("raw", run_id, 0),
-                ),
-                InlineKeyboardButton(
-                    "All scrapes", callback_data=_scrape_callback_data("list")
-                ),
+                    "Download PDF",
+                    callback_data=_scrape_callback_data("pdf", run_id),
+                )
             ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "Raw posts",
+                callback_data=_scrape_callback_data("raw", run_id, 0),
+            ),
+            InlineKeyboardButton(
+                "All scrapes", callback_data=_scrape_callback_data("list")
+            ),
         ]
     )
+    return InlineKeyboardMarkup(rows)
 
 
-def _format_saved_scrapes(saved: list[dict]) -> str:
+def _format_saved_scrapes(
+    saved: list[dict], research_only: bool = False
+) -> str:
     lines = ["Your saved scrapes, newest first:", ""]
     for index, item in enumerate(saved, start=1):
         started = item["started_at"]
@@ -594,17 +1179,56 @@ def _format_saved_scrapes(saved: list[dict]) -> str:
             f"{item['story_count']} stories"
         )
     lines.append("")
-    lines.append("Open one to pick from its curated stories, or view every raw post.")
+    if research_only:
+        lines.append("Open one to review its curated stories, sources, and timestamps.")
+    else:
+        lines.append("Open one to pick from its curated stories, or view every raw post.")
     return "\n".join(lines)
 
 
-def _format_opened_scrape(opened: dict) -> str:
-    lines = ["Saved scrape opened. Choose stories for a new script:", ""]
+def _format_source_timestamp(value: datetime | None) -> str:
+    if value is None:
+        return "time unavailable"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).strftime(
+        "%b %d, %Y at %I:%M %p UTC"
+    )
+
+
+def _format_opened_scrape(
+    opened: dict, research_only: bool = False
+) -> str:
+    heading = (
+        "Saved scrape opened. Review the curated research:"
+        if research_only
+        else "Saved scrape opened. Choose stories for a new script:"
+    )
+    lines = [heading, ""]
     for story in opened["stories"]:
         lines.append(f"{story['rank']}. {story['headline']}")
         lines.append(str(story["summary"]))
+        source_posts = story.get("source_posts", [])
+        if source_posts:
+            lines.append("Source posts:")
+            for index, post in enumerate(source_posts, start=1):
+                username = str(post.get("username") or "unknown")
+                timestamp = _format_source_timestamp(post.get("created_at"))
+                lines.append(
+                    f"   {index}. @{username} — {timestamp}"
+                )
+                if post.get("url"):
+                    lines.append(f"      {post['url']}")
+        else:
+            lines.append("Source posts: unavailable in this saved scrape")
         lines.append("")
-    lines.append("Reply with story numbers such as 1,3,5, or say auto for all.")
+    if research_only:
+        lines.append(
+            "Use /scrapes to browse saved runs or open every raw post. "
+            "No script or video job was created."
+        )
+    else:
+        lines.append("Reply with story numbers such as 1,3,5, or say auto for all.")
     return "\n".join(lines)
 
 
@@ -643,22 +1267,92 @@ def _telegram_chunks(text: str, limit: int = 3900) -> list[str]:
     return chunks
 
 
-async def _reply_saved_scrapes(message, user_id: int) -> None:
+async def _reply_saved_scrapes(
+    message, user_id: int, research_only: bool = False
+) -> None:
     saved = list_saved_scrapes(user_id)
     if not saved:
         await message.reply_text("You do not have any saved scrapes yet. Send /news to make one.")
         return
     await message.reply_text(
-        _format_saved_scrapes(saved), reply_markup=_saved_scrapes_keyboard(saved)
+        _format_saved_scrapes(saved, research_only=research_only),
+        reply_markup=_saved_scrapes_keyboard(
+            saved, research_only=research_only
+        ),
     )
 
 
-async def _reply_opened_scrape(message, user_id: int, reference: int | str) -> None:
-    opened = open_saved_scrape(user_id, reference)
-    await message.reply_text(
-        _format_opened_scrape(opened),
-        reply_markup=_opened_scrape_keyboard(str(opened["run_id"])),
+async def _reply_opened_scrape(
+    message,
+    user_id: int,
+    reference: int | str,
+    research_only: bool = False,
+) -> None:
+    opened = (
+        load_saved_scrape(user_id, reference)
+        if research_only
+        else open_saved_scrape(user_id, reference)
     )
+    chunks = _telegram_chunks(
+        _format_opened_scrape(opened, research_only=research_only)
+    )
+    for index, chunk in enumerate(chunks):
+        markup = (
+            _opened_scrape_keyboard(
+                str(opened["run_id"]), research_only=research_only
+            )
+            if index == len(chunks) - 1
+            else None
+        )
+        await message.reply_text(chunk, reply_markup=markup)
+
+
+async def _reply_scrape_report(
+    message,
+    user_id: int,
+    run_id: str,
+    settings: Settings,
+) -> None:
+    """Generate or reuse one saved report without ever starting a scrape."""
+    try:
+        owned_run = _resolve_saved_run(user_id, run_id)
+        report_path = await asyncio.to_thread(
+            reporting.ensure_scrape_report,
+            settings.db_path,
+            settings.report_dir,
+            owned_run.id,
+            user_id,
+        )
+        size_bytes = report_path.stat().st_size
+        maximum_bytes = max(1, int(settings.report_max_mb)) * 1024 * 1024
+        if size_bytes > maximum_bytes:
+            raise RuntimeError(
+                f"report is {size_bytes / (1024 * 1024):.1f} MB; "
+                f"configured upload limit is {settings.report_max_mb} MB"
+            )
+        await message.reply_document(
+            document=report_path,
+            filename=report_path.name,
+            caption=(
+                "Complete saved scrape report. Curated evidence and every raw "
+                "post are included; source links are clickable."
+            ),
+            read_timeout=60,
+            write_timeout=60,
+        )
+    except ValueError as exc:
+        await message.reply_text(str(exc))
+    except Exception:
+        log.exception(
+            "report generation or delivery failed: user=%s run=%s",
+            user_id,
+            run_id,
+        )
+        await message.reply_text(
+            "Your scrape is safely saved, but I could not prepare or send its "
+            "PDF right now. Tap PDF to retry the same report. This will not "
+            "start another scrape."
+        )
 
 
 async def _reply_raw_scrape(
@@ -677,15 +1371,23 @@ async def _reply_raw_scrape(
 async def handle_scrape_intent(
     update: Update,
     intent: tuple[str, int | None],
+    research_only: bool = False,
 ) -> None:
     """Handle saved-scrape language before any session-state routing."""
     action, reference = intent
     user_id = update.effective_user.id
     try:
         if action == "list":
-            await _reply_saved_scrapes(update.message, user_id)
+            await _reply_saved_scrapes(
+                update.message, user_id, research_only=research_only
+            )
         elif action == "open" and reference is not None:
-            await _reply_opened_scrape(update.message, user_id, reference)
+            await _reply_opened_scrape(
+                update.message,
+                user_id,
+                reference,
+                research_only=research_only,
+            )
         elif action == "raw" and reference is not None:
             run = _resolve_saved_run(user_id, reference)
             await _reply_raw_scrape(update.message, user_id, run.id)
@@ -698,6 +1400,7 @@ async def handle_scrape_intent(
 async def _scrape_callback(
     update: Update,
     _: ContextTypes.DEFAULT_TYPE,
+    settings: Settings | None = None,
 ) -> None:
     query = update.callback_query
     if query is None or query.message is None:
@@ -705,11 +1408,28 @@ async def _scrape_callback(
     await query.answer()
     parts = (query.data or "").split(":")
     user_id = update.effective_user.id
+    research_only = _scraper_only(settings)
     try:
         if parts == ["scrape", "list"]:
-            await _reply_saved_scrapes(query.message, user_id)
+            await _reply_saved_scrapes(
+                query.message, user_id, research_only=research_only
+            )
         elif len(parts) == 3 and parts[:2] == ["scrape", "open"]:
-            await _reply_opened_scrape(query.message, user_id, parts[2])
+            await _reply_opened_scrape(
+                query.message,
+                user_id,
+                parts[2],
+                research_only=research_only,
+            )
+        elif len(parts) == 3 and parts[:2] == ["scrape", "pdf"]:
+            if not research_only or settings is None:
+                raise ValueError("PDF reports are available in production scraper mode")
+            await _reply_scrape_report(
+                query.message,
+                user_id,
+                parts[2],
+                settings,
+            )
         elif len(parts) == 4 and parts[:2] == ["scrape", "raw"]:
             await _reply_raw_scrape(
                 query.message,
