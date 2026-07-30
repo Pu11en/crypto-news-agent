@@ -30,7 +30,7 @@ def script_keyboard(script_id: int) -> InlineKeyboardMarkup:
         [
             [
                 InlineKeyboardButton(
-                    "✅ Approve script", callback_data=f"video:approve-script:{script_id}"
+                    "✅ Lock notes", callback_data=f"video:approve-script:{script_id}"
                 ),
                 InlineKeyboardButton(
                     "✏️ Keep revising", callback_data=f"video:keep-revising:{script_id}"
@@ -90,7 +90,7 @@ async def _upload(update: Update, context: ContextTypes.DEFAULT_TYPE, settings) 
         return
     active = jobs.get_active_for_user(update.effective_user.id)
     if active is None or active.state != jobs.AWAITING_VIDEO:
-        await update.message.reply_text("Approve a script first, then upload the OBS MP4.")
+        await update.message.reply_text("Lock your talking notes first, then upload the OBS MP4.")
         return
     media = update.message.video or update.message.document
     if media is None:
@@ -175,13 +175,13 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE, settings
     if action == "approve-script":
         current_session = sess.load(user_id)
         if current_session.state != sess.SCRIPT_DRAFT:
-            await query.message.reply_text("There is no draft script waiting for approval.")
+            await query.message.reply_text("There are no draft talking notes waiting to be locked.")
             return
         try:
             expected_script_id = int(payload or "")
         except ValueError:
             await query.message.reply_text(
-                "That Approve button belongs to an older script version. Use the button under the newest draft."
+                "That Lock button belongs to an older notes version. Use the button under the newest draft."
             )
             return
         try:
@@ -192,12 +192,12 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE, settings
                 stale_hours=settings.video_artifact_retention_hours,
             )
         except ValueError as exc:
-            await query.message.reply_text(f"Could not approve the script: {exc}")
+            await query.message.reply_text(f"Could not lock the talking notes: {exc}")
             return
         await query.message.reply_text(
-            "✅ Script approved and locked.\n\n"
+            "✅ Talking notes locked.\n\n"
             f"{script.body}\n\n"
-            "Record yourself reading it in OBS as a 16:9 landscape MP4, then upload it here."
+            "Record yourself speaking naturally from these notes in OBS as a 16:9 landscape MP4, then upload it here."
         )
         return
     if action == "keep-revising":
@@ -205,19 +205,19 @@ async def _callback(update: Update, context: ContextTypes.DEFAULT_TYPE, settings
             if int(payload or "") != news.current_script_id(user_id):
                 raise ValueError
         except ValueError:
-            await query.message.reply_text("That button belongs to an older script draft.")
+            await query.message.reply_text("That button belongs to an older talking-notes draft.")
             return
-        await query.message.reply_text("Send the script change you want in normal language.")
+        await query.message.reply_text("Send the talking-notes change you want in normal language.")
         return
     if action == "cancel-script":
         try:
             if int(payload or "") != news.current_script_id(user_id):
                 raise ValueError
         except ValueError:
-            await query.message.reply_text("That button belongs to an older script draft.")
+            await query.message.reply_text("That button belongs to an older talking-notes draft.")
             return
         sess.reset(user_id)
-        await query.message.reply_text("❌ Script draft cancelled. Send /news to start again.")
+        await query.message.reply_text("❌ Talking-notes draft cancelled. Send /news to start again.")
         return
 
     bound_job = jobs.get(payload or "")

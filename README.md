@@ -1,18 +1,24 @@
 # crypto-news-agent
 
-A single-user Telegram bot that turns crypto Twitter into short-form video
-news scripts. Deployed on Railway.
+A Telegram crypto-news scraper and research agent, with an optional local
+script/video experimentation mode.
 
-## What it does
+## Product modes
 
-- **`/news`** — scrapes ~80 curated crypto Twitter accounts (last 24h),
-  picks the top 5 newsworthy stories, and shows them.
-- You reply with story numbers (`1,3,5`) or `auto` — the agent writes a
-  short-form video script.
-- You then **refine the script by talking to the agent in natural language**
-  ("make the hook punchier", "drop the second story", "shorter") until it's
-  right. `/done` saves it, `/cancel` discards.
-- Outside a script session, the agent is a general chat assistant.
+Set `BOT_MODE=scraper` for production. In this mode the bot:
+
+- Scrapes curated crypto X accounts only after explicit confirmation.
+- Saves every run and shows curated stories with exact source links and UTC times.
+- Generates a validated, cached PDF with curated evidence and every raw post.
+- Lets users browse all raw posts and discuss the latest scrape with a grounded
+  research assistant.
+- Does not generate scripts automatically after a scrape. A user can explicitly
+  ask the grounded agent to draft and revise a script conversationally.
+- Does not register video uploads, captions, storyboards, rendering, `/done`, or
+  video callbacks.
+
+Set `BOT_MODE=full` only for local script/video experiments. It keeps the
+talking-notes and video pipeline available without changing production behavior.
 
 ## How scripts are written
 
@@ -43,6 +49,8 @@ Telegram ⇆ Bot (async, single process)
               └── config.py         — env-based settings
 ```
 
+The exact production capability boundary and user flows are documented in [docs/PRODUCTION_AGENT.md](docs/PRODUCTION_AGENT.md).
+
 ## Local dev
 
 ```bash
@@ -55,6 +63,7 @@ export ZAI_API_KEY=...
 export XQUIK_API_KEY=...
 export TELEGRAM_BOT_TOKEN=...
 export ALLOWED_USER_IDS=<your-telegram-id>
+export BOT_MODE=scraper         # production behavior; use full for local video tests
 export DB_PATH=./data/agent.db   # local; /data/agent.db in prod
 
 # 3. Run
@@ -84,7 +93,10 @@ Find your Telegram user ID by messaging [@userinfobot](https://t.me/userinfobot)
 | `MAX_TWEETS_PER_ACCOUNT` | no | `20` | per-account tweet cap |
 | `TELEGRAM_BOT_TOKEN` | yes | — | from [@BotFather](https://t.me/BotFather) |
 | `ALLOWED_USER_IDS` | yes | — | comma-separated Telegram IDs |
+| `BOT_MODE` | no | `full` | `scraper` for production; `full` for local video experiments |
 | `DB_PATH` | no | `/data/agent.db` | SQLite path |
+| `REPORT_DIR` | no | `/data/reports` | persistent generated PDF directory |
+| `REPORT_MAX_MB` | no | `45` | maximum PDF upload size |
 
 ## Files
 

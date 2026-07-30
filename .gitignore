@@ -19,6 +19,8 @@ venv/
 
 # Local data
 data/
+output/
+tmp/
 
 # IDE
 .vscode/

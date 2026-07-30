@@ -29,6 +29,7 @@ RUN apt-get update \
         ca-certificates \
         chromium \
         ffmpeg \
+        fonts-dejavu-core \
         fonts-liberation \
         libgomp1 \
         unzip \
@@ -96,7 +97,7 @@ COPY src/ ./src/
 COPY scripts/container-entrypoint.sh /usr/local/bin/jordancrypto-entrypoint
 
 RUN chmod +x /usr/local/bin/jordancrypto-entrypoint \
-    && mkdir -p /data/video-jobs /data/hyperframes-cache \
+    && mkdir -p /data/reports /data/video-jobs /data/hyperframes-cache \
     && python -m compileall -q src \
     && chromium --version \
     && ffmpeg -version | head -n 1 \

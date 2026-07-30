@@ -87,12 +87,18 @@ async def _route(
 ) -> None:
     user_id = update.effective_user.id
     text = update.message.text or ""
+    research_only = news._scraper_only(settings)
     scrape_intent = news.parse_scrape_intent(text)
     if scrape_intent is not None:
-        await news.handle_scrape_intent(update, scrape_intent)
+        await news.handle_scrape_intent(
+            update, scrape_intent, research_only=research_only
+        )
         return
 
     user_sess = sess.load(user_id)
+    if research_only:
+        await _handle_research_chat(update, llm, user_sess, text)
+        return
 
     if user_sess.state == sess.AWAITING_PICK:
         await _handle_pick(update, settings, llm, user_sess, text)
@@ -144,14 +150,14 @@ async def _handle_pick(
         return
 
     await update.message.reply_text(
-        "Writing the script : one moment…"
+        "Building your talking notes : one moment…"
     )
     try:
         body = await asyncio.to_thread(
             news.write_initial_script, settings, llm, update.effective_user.id, chosen
         )
     except LLMError as e:
-        await update.message.reply_text(f"AI error writing script: {e}")
+        await update.message.reply_text(f"AI error creating talking notes: {e}")
         return
 
     user_sess = sess.load(update.effective_user.id)
@@ -175,12 +181,12 @@ async def _handle_approval(update: Update, settings: Settings) -> None:
             stale_hours=settings.video_artifact_retention_hours,
         )
     except ValueError as exc:
-        await update.message.reply_text(f"Could not approve the script: {exc}")
+        await update.message.reply_text(f"Could not lock the talking notes: {exc}")
         return
     await update.message.reply_text(
-        "✅ Script approved and locked.\n\n"
+        "✅ Talking notes locked.\n\n"
         f"{script.body}\n\n"
-        "Record yourself reading it in OBS as a 16:9 MP4, then upload the file here."
+        "Record yourself speaking naturally from these notes in OBS as a 16:9 MP4, then upload the file here."
     )
 
 
@@ -198,7 +204,7 @@ async def _handle_refine(
             prompts.build_refine_prompt(current, text),
         )
     except LLMError as e:
-        await update.message.reply_text(f"AI error refining script: {e}")
+        await update.message.reply_text(f"AI error refining talking notes: {e}")
         return
 
     sess.set_current_script(user_id, new_body)
@@ -215,15 +221,33 @@ async def _handle_refine(
     )
 
 
+# ---------------------------------------------------------------- scraper-only research chat
+
+async def _handle_research_chat(
+    update: Update, llm: LLMClient, user_sess, text: str
+) -> None:
+    context = await asyncio.to_thread(
+        news.latest_research_context, update.effective_user.id
+    )
+    system = f"{prompts.RESEARCH_CHAT_SYSTEM}\n\n{context}"
+    await _handle_chat(update, llm, user_sess, text, system=system)
+
+
 # ---------------------------------------------------------------- idle / general chat
 
-async def _handle_chat(update: Update, llm: LLMClient, user_sess, text: str) -> None:
+async def _handle_chat(
+    update: Update,
+    llm: LLMClient,
+    user_sess,
+    text: str,
+    system: str = prompts.CHAT_SYSTEM,
+) -> None:
     user_id = update.effective_user.id
     history = list(user_sess.history or [])
 
     try:
         reply = await asyncio.to_thread(
-            llm.chat, prompts.CHAT_SYSTEM, history, text
+            llm.chat, system, history, text
         )
     except LLMError as e:
         await update.message.reply_text(f"AI error: {e}")

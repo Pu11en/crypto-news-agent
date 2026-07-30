@@ -1,6 +1,6 @@
 """Flow-control commands: /done and /cancel.
 
-Both exit the active script session. /done marks the current draft as the
+Both exit the active talking-notes session. /done marks the current draft as the
 final version and saves it; /cancel discards it. Either way the user goes
 back to idle / general chat.
 """
@@ -26,7 +26,7 @@ async def _done(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     user_sess = sess.load(user_id)
     if user_sess.state != sess.SCRIPT_DRAFT:
         await update.message.reply_text(
-            "Nothing to save : you're not in a script session. Use /news to start one."
+            "Nothing to save : you're not in a talking-notes session. Use /news to start one."
         )
         return
     try:
@@ -43,12 +43,12 @@ async def _done(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         script = None
     if script:
         await update.message.reply_text(
-            "✅ Script approved and locked.\n\n"
+            "✅ Talking notes locked.\n\n"
             f"{script.body}\n\n"
-            "Record yourself reading it in OBS as a 16:9 MP4, then upload the file here."
+            "Record yourself speaking naturally from these notes in OBS as a 16:9 MP4, then upload the file here."
         )
     else:
-        await update.message.reply_text("No draft to save.")
+        await update.message.reply_text("No talking-notes draft to save.")
 
 
 async def _cancel(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
