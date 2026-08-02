@@ -332,3 +332,95 @@ def test_unrelated_message_is_normal_chat_while_awaiting_video(isolated_db):
     )
 
     assert message.replies[0][0] == "Agent answer: what else can you help me with?"
+
+
+def test_cut_stories_are_hidden_from_listings_and_reopen(isolated_db):
+    """Default-deny curation: display_ok=0 rows never reach a user-facing read.
+
+    A run with one displayable story and two cut stories (the audit trail) must
+    report story_count=1, reopen only the displayable story, and keep the cut
+    rows persisted for inspection. Covers the build-#6 read-site filters.
+    """
+    when = datetime.now(timezone.utc)
+    factory = db.session()
+    with factory() as s:
+        s.add(
+            db.Run(
+                id="vetted-run",
+                user_id=770,
+                started_at=when,
+                finished_at=when,
+                tweets_fetched=3,
+                accounts_hit=3,
+                errors=[],
+            )
+        )
+        s.add_all(
+            [
+                db.Tweet(
+                    tweet_id="vetted-1",
+                    username="alpha",
+                    text="source",
+                    created_at=when,
+                    url=None,
+                    run_id="vetted-run",
+                )
+            ]
+        )
+        s.add_all(
+            [
+                db.Story(
+                    run_id="vetted-run",
+                    rank=1,
+                    headline="Displayable story",
+                    summary="Cleared vetting.",
+                    tweet_ids=["vetted-1"],
+                    score=0.9,
+                    display_ok=True,
+                    cut_reason=None,
+                ),
+                db.Story(
+                    run_id="vetted-run",
+                    rank=2,
+                    headline="Cut: low score",
+                    summary="Below bar.",
+                    tweet_ids=["vetted-1"],
+                    score=0.4,
+                    display_ok=False,
+                    cut_reason="low_score",
+                ),
+                db.Story(
+                    run_id="vetted-run",
+                    rank=3,
+                    headline="Cut: over cap",
+                    summary="Past the cap.",
+                    tweet_ids=["vetted-1"],
+                    score=0.85,
+                    display_ok=False,
+                    cut_reason="over_cap",
+                ),
+            ]
+        )
+        s.commit()
+
+    # The listing count reflects only displayable stories.
+    saved = news.list_saved_scrapes(770)
+    assert saved[0]["run_id"] == "vetted-run"
+    assert saved[0]["story_count"] == 1
+
+    # Reopen (and chat grounding) surface only the displayable story.
+    opened = news.load_saved_scrape(770, "vetted-run")
+    assert [story["headline"] for story in opened["stories"]] == ["Displayable story"]
+
+    # The cut rows remain persisted as the audit trail.
+    with factory() as s:
+        all_rows = (
+            s.query(db.Story)
+            .filter(db.Story.run_id == "vetted-run")
+            .order_by(db.Story.rank)
+            .all()
+        )
+    assert len(all_rows) == 3
+    assert [row.display_ok for row in all_rows] == [True, False, False]
+    assert [row.cut_reason for row in all_rows] == [None, "low_score", "over_cap"]
+

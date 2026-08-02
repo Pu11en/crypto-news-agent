@@ -128,7 +128,8 @@ def _load_report_data(db_path: Path, run_id: str, user_id: int) -> dict:
         if run is None:
             raise ValueError("Saved scrape not found for this user")
         story_rows = connection.execute(
-            "SELECT * FROM stories WHERE run_id = ? ORDER BY rank, id",
+            "SELECT * FROM stories WHERE run_id = ? AND display_ok = 1 "
+            "ORDER BY rank, id",
             (run_id,),
         ).fetchall()
         post_rows = connection.execute(

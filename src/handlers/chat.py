@@ -133,7 +133,10 @@ async def _handle_pick(
     try:
         available = (
             s.query(db.Story)
-            .filter(db.Story.run_id == user_sess.run_id)
+            .filter(
+                db.Story.run_id == user_sess.run_id,
+                db.Story.display_ok.is_(True),
+            )
             .order_by(db.Story.rank)
             .all()
         )
