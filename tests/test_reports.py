@@ -225,3 +225,79 @@ def test_report_failure_or_size_limit_preserves_scrape_and_is_retryable(
     )
     assert message.documents == []
     assert "safely saved" in message.text_replies[-1][0]
+
+
+def test_report_excludes_curation_cut_stories(isolated_db):
+    """Default-deny curation: display_ok=0 stories never reach the PDF.
+
+    A run with one displayable story and one cut story (over_cap) is rendered;
+    the report must contain the displayable headline and omit the cut one, while
+    the cut row stays persisted for the audit trail.
+    """
+    when = datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)
+    run_id = "vetted-report"
+    factory = db.session()
+    with factory() as session:
+        session.add(
+            db.Run(
+                id=run_id,
+                user_id=806,
+                started_at=when,
+                finished_at=when,
+                tweets_fetched=1,
+                accounts_hit=1,
+                errors=[],
+            )
+        )
+        session.add(
+            db.Tweet(
+                tweet_id=f"{run_id}-1",
+                username="alpha",
+                text="The source post backing the displayable story.",
+                created_at=when,
+                url=f"https://x.com/alpha/status/{run_id}-1",
+                tier="high",
+                tags="btc",
+                run_id=run_id,
+            )
+        )
+        session.add_all(
+            [
+                db.Story(
+                    run_id=run_id,
+                    rank=1,
+                    headline="Displayable headline",
+                    summary="Cleared vetting.",
+                    tweet_ids=[f"{run_id}-1"],
+                    score=0.9,
+                    display_ok=True,
+                    cut_reason=None,
+                ),
+                db.Story(
+                    run_id=run_id,
+                    rank=2,
+                    headline="Cut filler headline",
+                    summary="Past the cap; should not appear.",
+                    tweet_ids=[f"{run_id}-1"],
+                    score=0.72,
+                    display_ok=False,
+                    cut_reason="over_cap",
+                ),
+            ]
+        )
+        session.commit()
+
+    db_path = isolated_db / "test.db"
+    report_dir = isolated_db / "reports"
+    report = reporting.ensure_scrape_report(db_path, report_dir, run_id, 806)
+
+    reader = PdfReader(str(report))
+    extracted = "\n".join(page.extract_text() or "" for page in reader.pages)
+    assert "Displayable headline" in extracted
+    assert "Cut filler headline" not in extracted
+
+    # The cut row remains persisted for inspection even though it is hidden.
+    data = reporting._load_report_data(db_path, run_id, 806)
+    assert len(data["stories"]) == 1
+    assert data["stories"][0]["headline"] == "Displayable headline"
+

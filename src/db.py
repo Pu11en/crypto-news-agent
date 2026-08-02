@@ -62,6 +62,11 @@ class Story(Base):
     summary: Mapped[str] = mapped_column(Text)
     tweet_ids: Mapped[list[str]] = mapped_column(JSON, default=list)  # source tweet_ids
     score: Mapped[float] = mapped_column(default=0.0)  # 0..1 newsworthiness
+    # Curation vetting (default-deny at persist): display_ok stamps whether a
+    # story clears the deterministic guards and may reach the PDF/chat; cut_reason
+    # records why a denied story was dropped (ungrounded / low_score / over_cap).
+    display_ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    cut_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )
@@ -197,6 +202,23 @@ def init_engine(db_path: str):
             conn.execute(text("ALTER TABLE runs ADD COLUMN user_id INTEGER"))
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_runs_user_id ON runs (user_id)")
+        )
+
+        # Curation vetting columns (default-deny at persist). Existing stories
+        # are treated as displayable: SQLite ADD COLUMN with a server-side default
+        # of 1 backfills every historical row, so old PDFs re-render unchanged.
+        story_columns = {
+            str(row[1]) for row in conn.execute(text("PRAGMA table_info(stories)"))
+        }
+        if "display_ok" not in story_columns:
+            conn.execute(text("ALTER TABLE stories ADD COLUMN display_ok BOOLEAN DEFAULT 1"))
+        if "cut_reason" not in story_columns:
+            conn.execute(text("ALTER TABLE stories ADD COLUMN cut_reason TEXT"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_stories_run_display "
+                "ON stories (run_id, display_ok)"
+            )
         )
 
     _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)

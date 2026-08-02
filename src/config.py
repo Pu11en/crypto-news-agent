@@ -79,7 +79,7 @@ def load() -> Settings:
         zai_base_url=os.environ.get(
             "ZAI_BASE_URL", "https://api.z.ai/api/coding/paas/v4"
         ).rstrip("/"),
-        zai_model=os.environ.get("ZAI_MODEL", "glm-4.6"),
+        zai_model=os.environ.get("ZAI_MODEL", "glm-5-turbo"),
         deepseek_api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
         deepseek_base_url=os.environ.get(
             "DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"

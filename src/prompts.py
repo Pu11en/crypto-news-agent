@@ -34,21 +34,24 @@ CURATE_SYSTEM = SYSTEM_PERSONA + (
 
 CURATE_INSTRUCTION = """\
 Below are raw tweets scraped from crypto Twitter in the last {hours}h.
-Pick up to {max_stories} of the most newsworthy stories.
+Return ONLY stories that clear a 0.7 newsworthiness bar — front-page or genuinely
+important news. This is an inclusion bar, not a quota: if only 2 qualify, return 2;
+return zero if none clear the bar. Do not pad to a count.
 
-Rank them by importance (1 = biggest). For each story return:
+Rank the qualifying stories by importance (1 = biggest). For each story return:
 - headline: 6-12 word punchy title
 - summary: 1-2 sentence plain-English explanation of what happened and why it matters
 - score: 0.0-1.0 newsworthiness (0.9+ = breaking/front-page, 0.7-0.9 = important, <0.7 = filler)
 - tweet_ids: the tweet_id values from the input that this story draws on
+
+Hard ceiling: never return more than {max_stories} stories, even if more clear the bar.
+Merge related tweets into one story.
 
 Return ONLY valid JSON : no prose, no markdown fences. Schema:
 {{"stories": [
   {{"rank": 1, "headline": "...", "summary": "...", "score": 0.92, "tweet_ids": ["123","456"]}},
   ...
 ]}}
-
-If fewer than {max_stories} stories are genuinely newsworthy, return fewer. Quality over quantity.
 
 TWEETS (JSON):
 {tweets_json}

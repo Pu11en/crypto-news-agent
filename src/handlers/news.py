@@ -17,7 +17,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
@@ -42,6 +42,12 @@ log = logging.getLogger("agent.news")
 _SCRAPE_WORKERS = 8
 _NEWS_IN_PROGRESS = False
 SCRIPT_BANNER = "🎙️ *Talking notes* (v%d)\n\n%s\n\n_Talk to me to refine them, or_ /done _to lock,_ /cancel _to discard._"
+
+# Default-deny vetting thresholds (see wayfinder map #2 / build #6). A story
+# clears vetting only if it is grounded in a real scraped tweet, scores at least
+# the newsworthiness bar the prompt already calls "important", and falls within
+# the hard cap. Everything else is stamped display_ok=0 with a cut_reason.
+_SCORE_FLOOR = 0.7
 
 
 def _scraper_only(settings) -> bool:
@@ -594,7 +600,11 @@ async def _start_fresh_news(
     finally:
         _NEWS_IN_PROGRESS = False
 
-    if not result["stories"]:
+    displayable = [s for s in result["stories"] if s.get("display_ok", True)]
+    if not displayable:
+        # Nothing cleared vetting (or the model returned nothing). Behave like an
+        # empty curation: the scrape's raw posts are already saved, so deliver the
+        # report in scraper mode rather than wedge on a story-less reopen.
         await message.reply_text(
             f"No newsworthy stories found in the last {settings.scrape_hours}h "
             f"(scraped {result['tweets_fetched']} tweets from "
@@ -625,10 +635,67 @@ async def _start_fresh_news(
     sess.set_run(user_id, result["run_id"], story_ids)
     await message.reply_text(
         _format_top_stories(
-            result["stories"], result["tweets_fetched"], result["accounts_hit"]
+            displayable, result["tweets_fetched"], result["accounts_hit"]
         ),
         parse_mode="Markdown",
     )
+
+def _vet_stories(
+    raw_stories: list[dict], run_tweets: list[RawTweet], max_stories: int
+) -> list[dict]:
+    """Stamp each story with display_ok / cut_reason using deterministic guards.
+
+    Applied in order (first cut wins): grounding, score floor, hard cap. The list
+    is returned in full so the audit trail is preserved in the DB; callers that
+    surface stories to the user read only display_ok=1 rows.
+    """
+    valid_ids = {t.tweet_id for t in run_tweets}
+
+    # Hard cap is applied to score-ordered survivors only, so a story cut by the
+    # cap is the lowest-scoring qualifying one, never a high scorer.
+    scored: list[dict] = []
+    for story in raw_stories:
+        story_ids = {str(tid) for tid in story.get("tweet_ids", [])}
+        if not story_ids.intersection(valid_ids):
+            story["display_ok"] = False
+            story["cut_reason"] = "ungrounded"
+            continue
+        try:
+            score = float(story.get("score", 0.0))
+        except (TypeError, ValueError):
+            score = 0.0
+        if score < _SCORE_FLOOR:
+            story["display_ok"] = False
+            story["cut_reason"] = "low_score"
+            continue
+        story["display_ok"] = True
+        story["cut_reason"] = None
+        scored.append(story)
+
+    # Stable sort by score desc (lower rank breaks ties): higher score wins the
+    # cap, so the cap always drops the lowest-scoring qualifying survivors.
+    scored.sort(
+        key=lambda s: (float(s.get("score", 0.0)), -int(s.get("rank", 0))),
+        reverse=True,
+    )
+    for survivor in scored[max_stories:]:
+        survivor["display_ok"] = False
+        survivor["cut_reason"] = "over_cap"
+    return raw_stories
+
+
+def _summarise_cuts(stories: list[dict]) -> dict:
+    """Return per-run vetting counts for the observability log line."""
+    counts: dict[str, int] = {}
+    displayed = 0
+    for story in stories:
+        if story.get("display_ok"):
+            displayed += 1
+            continue
+        reason = story.get("cut_reason") or "unknown"
+        counts[reason] = counts.get(reason, 0) + 1
+    return {"returned": len(stories), "displayed": displayed, "cuts": counts}
+
 
 def _scrape_and_curate(
     settings: Settings, llm: LLMClient, user_id: int
@@ -698,6 +765,19 @@ def _scrape_and_curate(
     curated = llm.curate(prompts.CURATE_SYSTEM, prompt)
     stories = curated.get("stories", []) if isinstance(curated, dict) else []
 
+    # Enforce the curation contract in code (default-deny at persist): a model
+    # that over-produces or invents filler cannot leak past these guards into
+    # the report or chat. Vetted-in-full so the audit trail survives.
+    stories = _vet_stories(stories, tweets, max_stories=5)
+    summary = _summarise_cuts(stories)
+    log.info(
+        "run %s: curation vetted %d returned -> %d displayed (cuts: %s)",
+        run_id,
+        summary["returned"],
+        summary["displayed"],
+        summary["cuts"] or "none",
+    )
+
     # Enrich each story with clickable source tweet URLs.
     url_map = {t.tweet_id: t.url for t in tweets if t.url}
     for story in stories:
@@ -760,6 +840,8 @@ def _persist_stories(user_id: int, run_id: str, raw_stories: list[dict]) -> list
                 summary=str(story.get("summary", "")).strip(),
                 tweet_ids=list(story.get("tweet_ids", [])),
                 score=float(story.get("score", 0.0)),
+                display_ok=bool(story.get("display_ok", True)),
+                cut_reason=story.get("cut_reason"),
             )
             s.add(row)
             s.flush()
@@ -849,7 +931,13 @@ def list_saved_scrapes(user_id: int, limit: int = 10) -> list[dict]:
                 db.Run,
                 func.count(func.distinct(db.Story.id)).label("story_count"),
             )
-            .outerjoin(db.Story, db.Story.run_id == db.Run.id)
+            .outerjoin(
+                db.Story,
+                and_(
+                    db.Story.run_id == db.Run.id,
+                    db.Story.display_ok.is_(True),
+                ),
+            )
             .filter(db.Run.user_id == user_id)
             .group_by(db.Run.id)
             .order_by(db.Run.started_at.desc(), db.Run.id.desc())
@@ -946,7 +1034,7 @@ def load_saved_scrape(user_id: int, reference: int | str) -> dict:
     with factory() as s:
         stories = (
             s.query(db.Story)
-            .filter(db.Story.run_id == run.id)
+            .filter(db.Story.run_id == run.id, db.Story.display_ok.is_(True))
             .order_by(db.Story.rank, db.Story.id)
             .all()
         )
@@ -1485,7 +1573,7 @@ def write_initial_script(
         run_id = user_sess.run_id
         all_stories = (
             s.query(db.Story)
-            .filter(db.Story.run_id == run_id)
+            .filter(db.Story.run_id == run_id, db.Story.display_ok.is_(True))
             .order_by(db.Story.rank)
             .all()
         )
