@@ -4,7 +4,7 @@ Wires up:
   - config + DB + LLM client (singletons, built once at boot)
   - a framework-level allowlist filter so only listed Telegram user IDs can
     trigger any handler (unauthorized updates are dropped before our code runs)
-  - all handlers (commands + free-text router)
+  - natural-language production router; local full mode retains legacy commands
 
 Run locally:  python src/bot.py
 Run in prod:  same : the Dockerfile CMD is `python src/bot.py`.
@@ -47,6 +47,31 @@ for noisy in ("httpx", "telegram", "urllib3", "openai"):
 log = logging.getLogger("agent.bot")
 
 
+async def _clear_command_menu(app: Application) -> None:
+    """Remove Telegram's slash-command menu in natural-language production mode."""
+    await app.bot.delete_my_commands()
+    log.info("Cleared Telegram command menu; production is natural-language only")
+
+
+def _register_handlers(app, settings, llm, user_filter) -> None:
+    """Register the mode's public interface.
+
+    Production scraper mode exposes only free-text language. Full local mode
+    retains the legacy command and video-development interface.
+    """
+    if settings.bot_mode == "scraper":
+        chat.register(app, settings, llm, user_filter)
+        return
+
+    news.register(app, settings, llm, user_filter)
+    from handlers import commands, video
+
+    commands.register(app, user_filter, settings)
+    video.register(app, settings, llm, user_filter)
+    chat.register(app, settings, llm, user_filter)
+    credits.register(app, settings, user_filter)
+
+
 def main() -> None:
     log.info("Starting crypto news agent…")
     settings = config.load()
@@ -64,9 +89,10 @@ def main() -> None:
 
     llm = LLMClient(settings)
 
-    app: Application = (
-        ApplicationBuilder().token(settings.telegram_bot_token).build()
-    )
+    builder = ApplicationBuilder().token(settings.telegram_bot_token)
+    if settings.bot_mode == "scraper":
+        builder = builder.post_init(_clear_command_menu)
+    app: Application = builder.build()
 
     # Framework-level allowlist: build a user filter once and pass it to every
     # handler. Updates from non-allowlisted users never reach our code : the
@@ -84,14 +110,7 @@ def main() -> None:
             "Anyone who finds the bot can trigger scrapes."
         )
 
-    news.register(app, settings, llm, user_filter)
-    if settings.bot_mode == "full":
-        from handlers import commands, video
-
-        commands.register(app, user_filter, settings)
-        video.register(app, settings, llm, user_filter)
-    chat.register(app, settings, llm, user_filter)
-    credits.register(app, settings, user_filter)
+    _register_handlers(app, settings, llm, user_filter)
 
     app.run_polling()
 

@@ -45,11 +45,11 @@ def _bot_mode() -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    # LLM : primary (z.ai GLM)
+    # LLM : fallback (z.ai GLM)
     zai_api_key: str
     zai_base_url: str
     zai_model: str
-    # LLM : fallback (DeepSeek)
+    # LLM : primary (DeepSeek)
     deepseek_api_key: str
     deepseek_base_url: str
     deepseek_model: str
@@ -84,7 +84,7 @@ def load() -> Settings:
         deepseek_base_url=os.environ.get(
             "DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"
         ).rstrip("/"),
-        deepseek_model=os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
+        deepseek_model=os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
         xquik_api_key=_required("XQUIK_API_KEY"),
         scrape_hours=_int("SCRAPE_HOURS", 24),
         max_tweets_per_account=_int("MAX_TWEETS_PER_ACCOUNT", 20),

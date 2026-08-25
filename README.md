@@ -7,8 +7,14 @@ script/video experimentation mode.
 
 Set `BOT_MODE=scraper` for production. In this mode the bot:
 
-- Scrapes curated crypto X accounts only after explicit confirmation.
-- Saves every run and shows curated stories with exact source links and UTC times.
+- Uses natural-language requests only; production registers no slash-command
+  handlers and clears Telegram's command menu at startup.
+- Ask for fresh crypto news to request a new scrape. The bot asks for a natural
+  language yes/no confirmation before spending Xquik credits.
+- Scrapes only the accounts in `accounts.txt`, always through Xquik and never
+  through direct X/Twitter access, broad X search, or alternate account lists.
+- Ask to show saved scrapes, open the latest research, inspect raw posts, or check
+  the Xquik credit balance.
 - Generates a validated, cached PDF with curated evidence and every raw post.
 - Lets users browse all raw posts and discuss the latest scrape with a grounded
   research assistant.
@@ -42,7 +48,7 @@ Telegram ⇆ Bot (async, single process)
               │     ├── commands.py — /done, /cancel
               │     └── session.py  — per-user state machine
               ├── xquik.py          — Xquik scraper (twitter data)
-              ├── llm.py            — z.ai GLM client (OpenAI SDK)
+              ├── llm.py            — DeepSeek V4 Flash with z.ai GLM fallback
               ├── prompts.py        — curation + script prompts
               ├── db.py             — SQLite (tweets, stories, scripts, sessions)
               ├── accounts.py       — account list loader
@@ -59,7 +65,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # 2. Set env vars (see .env.example)
-export ZAI_API_KEY=...
+export DEEPSEEK_API_KEY=...
 export XQUIK_API_KEY=...
 export TELEGRAM_BOT_TOKEN=...
 export ALLOWED_USER_IDS=<your-telegram-id>
@@ -85,9 +91,12 @@ Find your Telegram user ID by messaging [@userinfobot](https://t.me/userinfobot)
 
 | Var | Required | Default | Notes |
 |---|---|---|---|
-| `ZAI_API_KEY` | yes | — | z.ai GLM Coding Plan key |
-| `ZAI_BASE_URL` | no | `https://api.z.ai/api/coding/paas/v4` | Coding Plan endpoint |
-| `ZAI_MODEL` | no | `glm-4.6` | model name |
+| `DEEPSEEK_API_KEY` | yes | — | DeepSeek API key; primary LLM provider |
+| `DEEPSEEK_BASE_URL` | no | `https://api.deepseek.com/v1` | OpenAI-compatible DeepSeek endpoint |
+| `DEEPSEEK_MODEL` | no | `deepseek-v4-flash` | primary model name |
+| `ZAI_API_KEY` | yes | — | z.ai GLM fallback key |
+| `ZAI_BASE_URL` | no | `https://api.z.ai/api/coding/paas/v4` | fallback endpoint |
+| `ZAI_MODEL` | no | `glm-5-turbo` | fallback model name |
 | `XQUIK_API_KEY` | yes | — | Xquik scraper key |
 | `SCRAPE_HOURS` | no | `24` | lookback window |
 | `MAX_TWEETS_PER_ACCOUNT` | no | `20` | per-account tweet cap |

@@ -4,6 +4,15 @@ Production runs with `BOT_MODE=scraper`. Local video experiments run with
 `BOT_MODE=full`. The two modes share scraping and storage, but they expose
 different Telegram capabilities.
 
+## X/Twitter source boundary
+
+- Every new X/Twitter scrape uses the Xquik API.
+- The only eligible source accounts are the usernames committed in `accounts.txt`.
+- The runtime passes that list into the Xquik client as an allowlist; attempts to
+  fetch any other username fail before a network request is made.
+- Broad X search, direct X/Twitter API access, browser scraping, alternate account
+  lists, and unlisted accounts are not permitted for this agent.
+
 ## What production can do
 
 - Ask before spending Xquik credits on every new scrape.
@@ -30,34 +39,30 @@ different Telegram capabilities.
 
 ## Production flows
 
-### `/news`
+### Ask for fresh crypto news
 
-1. Show the latest scrape date/time and counts.
-2. Offer **Continue current** and **Start new scrape**.
-3. **Continue current** spends no credits and opens saved research.
-4. **Start new scrape** is the explicit credit-spending confirmation.
-5. A successful scrape is saved before it is presented.
-6. Telegram receives the curated research and source links.
-7. The bot generates, validates, caches, and sends the complete PDF.
-8. If PDF generation or upload fails, the scrape remains saved and the PDF
-   button retries from that same scrape. It never triggers another scrape.
+1. The bot explains that a new scrape uses Xquik credits and asks for a natural
+   language yes/no confirmation.
+2. A clear yes starts the scrape; a clear no cancels it. Any other response asks
+   the user to clarify without spending credits.
+3. A successful scrape is saved before it is presented.
+4. Telegram receives the curated research and source links.
+5. The bot generates, validates, caches, and sends the complete PDF.
+6. If PDF generation or upload fails, the scrape remains saved and can be
+   requested again without triggering another scrape.
 
-### `/scrapes`
+### Ask to show saved scrapes
 
-1. Show saved runs newest first with date/time and counts.
-2. **Open** displays the curated stories and evidence.
-3. **PDF** generates or reuses the complete report.
-4. **Raw posts** pages through all collected posts in Telegram.
-
-### `/continue`
-
-Reopen the latest saved research. It never starts a scrape.
+The bot lists saved runs newest first. The user can naturally ask to open a
+numbered scrape, view its raw posts, or return to the latest research.
 
 ### Natural-language chat
 
 The assistant receives the latest saved scrape as grounded context. It can
 explain stories, compare sources, and help draft or revise a script only when
 asked. This conversation does not start a scrape or enter the video pipeline.
+Production registers no slash-command handlers and clears Telegram's command
+menu at startup.
 
 ## Reliability guarantees
 

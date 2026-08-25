@@ -18,6 +18,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 import prompts
 from config import Settings
+from handlers import credits
 from handlers import session as sess
 from handlers import news
 from llm import LLMClient, LLMError
@@ -57,6 +58,35 @@ _NEGATED_APPROVAL = re.compile(
     r"\b(?:approve|approved|good|perfect|ready|exactly|lock|use|go)\b"
 )
 
+_FRESH_NEWS_INTENT = re.compile(
+    r"\b(?:fresh|new)\s+(?:crypto\s+)?news\b|"
+    r"\b(?:start|run|fetch|do)\b[^.?!]{0,50}\b(?:new\s+)?scrape\b|"
+    r"\bscrape\b[^.?!]{0,50}\b(?:x|twitter|accounts?|posts?|news)\b"
+)
+_HELP_INTENT = re.compile(
+    r"^(?:help|what can you do|how (?:do|should) i use (?:this|you)|show capabilities)[?.!]*$"
+)
+_CREDITS_INTENT = re.compile(
+    r"\b(?:xquik\s+)?credit(?:s| balance)?\b|\bhow many credits\b"
+)
+_ACCOUNT_INTENT = re.compile(r"\b(?:show|check|view)\b.*\bxquik account\b")
+_CONFIRM_INTENT = re.compile(
+    r"^(?:yes|yep|yeah|confirm|confirmed|proceed|go ahead|do it|start it|"
+    r"yes[, ]+go ahead(?: and start it)?|yes[, ]+start it)[.!]*$"
+)
+_CANCEL_INTENT = re.compile(
+    r"^(?:no|nope|cancel|never mind|nevermind|don't|do not|stop)[.!]*$"
+)
+_PENDING_FRESH_KEY = "pending_fresh_scrape_confirmation"
+
+_NATURAL_HELP = (
+    "Talk to me naturally. You can ask me to get fresh crypto news, show your "
+    "saved scrapes, open the latest research, show the raw posts from a saved "
+    "scrape, check your Xquik credit balance, or answer questions about the "
+    "latest saved research. I will ask for confirmation before a new scrape "
+    "spends Xquik credits."
+)
+
 
 def is_script_approval(text: str) -> bool:
     """Recognize explicit approval while avoiding common revision phrases."""
@@ -79,15 +109,73 @@ def register(
     )
 
 
+async def _handle_natural_scraper_action(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    settings: Settings,
+    llm: LLMClient,
+    text: str,
+) -> bool:
+    """Route production actions expressed as ordinary language.
+
+    Returning True means the message was handled and must not fall through to
+    research chat. Confirmation state is kept in Telegram's per-user memory;
+    losing it on restart is safe because a scrape then requires a new request.
+    """
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
+    user_data = getattr(context, "user_data", None)
+    if user_data is None:
+        user_data = {}
+
+    if user_data.get(_PENDING_FRESH_KEY):
+        if _CONFIRM_INTENT.fullmatch(normalized):
+            user_data.pop(_PENDING_FRESH_KEY, None)
+            await news._start_fresh_news(
+                update.message, update.effective_user.id, settings, llm
+            )
+            return True
+        if _CANCEL_INTENT.fullmatch(normalized):
+            user_data.pop(_PENDING_FRESH_KEY, None)
+            await update.message.reply_text("Okay, I won't start a new scrape.")
+            return True
+        await update.message.reply_text(
+            "Please answer naturally with yes to start the scrape or no to cancel it."
+        )
+        return True
+
+    if _HELP_INTENT.fullmatch(normalized):
+        await update.message.reply_text(_NATURAL_HELP)
+        return True
+    if _ACCOUNT_INTENT.search(normalized):
+        await credits._account(update, context, settings)
+        return True
+    if _CREDITS_INTENT.search(normalized):
+        await credits._credits(update, context, settings)
+        return True
+    if _FRESH_NEWS_INTENT.search(normalized):
+        user_data[_PENDING_FRESH_KEY] = True
+        await update.message.reply_text(
+            "A new scrape will query only the configured accounts through Xquik "
+            "and spend Xquik credits. Say yes in natural language to start it, or "
+            "say no to cancel."
+        )
+        return True
+    return False
+
+
 async def _route(
     update: Update,
-    _: ContextTypes.DEFAULT_TYPE,
+    context: ContextTypes.DEFAULT_TYPE,
     settings: Settings,
     llm: LLMClient,
 ) -> None:
     user_id = update.effective_user.id
     text = update.message.text or ""
     research_only = news._scraper_only(settings)
+    if research_only and await _handle_natural_scraper_action(
+        update, context, settings, llm, text
+    ):
+        return
     scrape_intent = news.parse_scrape_intent(text)
     if scrape_intent is not None:
         await news.handle_scrape_intent(
@@ -110,7 +198,7 @@ async def _route(
     elif user_sess.state == sess.STORYBOARD_REVISION:
         from handlers import video
 
-        await video.handle_revision_text(update, _, settings, llm)
+        await video.handle_revision_text(update, context, settings, llm)
     elif user_sess.state == sess.AWAITING_VIDEO:
         await _handle_chat(update, llm, user_sess, text)
     else:

@@ -74,11 +74,20 @@ class XquikAuthError(XquikError):
 
 
 class XquikClient:
-    def __init__(self, api_key: str, base_url: str = XQUIK_BASE):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str = XQUIK_BASE,
+        *,
+        allowed_usernames: set[str] | frozenset[str] | None = None,
+    ):
         if not api_key:
             raise ValueError("Xquik API key is required")
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+        self.allowed_usernames = frozenset(
+            username.lstrip("@").lower() for username in (allowed_usernames or ())
+        )
         self._session = requests.Session()
         self._session.headers.update(
             {
@@ -134,8 +143,12 @@ class XquikClient:
     def fetch_recent_tweets(
         self, username: str, hours: int, limit: int
     ) -> list[RawTweet]:
-        """Fetch tweets from one account within the last `hours` hours."""
+        """Fetch recent tweets from one explicitly allowlisted account."""
         username = username.lstrip("@")
+        if username.lower() not in self.allowed_usernames:
+            raise XquikError(
+                f"X account @{username} is not in the configured accounts list"
+            )
         since = datetime.now(timezone.utc) - timedelta(hours=hours)
         query = f"from:{username} since:{since.strftime('%Y-%m-%d')}"
         params = {"q": query, "limit": limit}

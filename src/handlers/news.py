@@ -174,8 +174,8 @@ async def _continue_news(
         research_only=_scraper_only(settings),
     ):
         await update.message.reply_text(
-            "There is no saved work to continue. Send /news to choose whether "
-            "to start a scrape."
+            "There is no saved work to continue. Ask me to get fresh crypto "
+            "news if you want to start a scrape."
         )
 
 
@@ -487,7 +487,7 @@ async def _resume_existing_work(
         if int(saved[0]["story_count"]) == 0:
             await message.reply_text(
                 "Your latest saved scrape contains no curated stories. "
-                "Use /scrapes to inspect its raw posts."
+                "Ask me to show your saved scrapes so you can inspect its raw posts."
             )
             return True
         await message.reply_text(
@@ -702,10 +702,13 @@ def _scrape_and_curate(
 ) -> dict:
     """Blocking: fetch tweets, store them, ask the LLM to curate. Returns run meta."""
     run_id = uuid.uuid4().hex[:12]
-    client = XquikClient(api_key=settings.xquik_api_key)
     accounts = load_accounts()
+    client = XquikClient(
+        api_key=settings.xquik_api_key,
+        allowed_usernames={account.username for account in accounts},
+    )
 
-    log.info("run %s: scraping %d accounts", run_id, len(accounts))
+    log.info("run %s: scraping %d allowlisted accounts via Xquik", run_id, len(accounts))
 
     tweets: list[RawTweet] = []
     errors: list[str] = []
@@ -863,7 +866,7 @@ def _format_top_stories(
         acct_note = f" from {accounts_hit} accounts" if accounts_hit else ""
         cost_note = (
             f"\n\n_({tweets_fetched} tweets scraped{acct_note} · "
-            f"~{tweets_fetched} credits used · /credits to check balance)_"
+            f"~{tweets_fetched} credits used · ask for your Xquik balance)_"
         )
     for s in stories:
         rank = s.get("rank", "?")
@@ -1312,7 +1315,7 @@ def _format_opened_scrape(
         lines.append("")
     if research_only:
         lines.append(
-            "Use /scrapes to browse saved runs or open every raw post. "
+            "Ask me naturally to browse saved runs or open every raw post. "
             "No script or video job was created."
         )
     else:
@@ -1360,7 +1363,14 @@ async def _reply_saved_scrapes(
 ) -> None:
     saved = list_saved_scrapes(user_id)
     if not saved:
-        await message.reply_text("You do not have any saved scrapes yet. Send /news to make one.")
+        guidance = (
+            "Ask me to get fresh crypto news to make one."
+            if research_only
+            else "Send /news to make one."
+        )
+        await message.reply_text(
+            f"You do not have any saved scrapes yet. {guidance}"
+        )
         return
     await message.reply_text(
         _format_saved_scrapes(saved, research_only=research_only),

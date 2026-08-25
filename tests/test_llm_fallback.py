@@ -65,15 +65,41 @@ class FakeClient:
         self.chat = FakeChat(completions)
 
 
-def build_client(*, ds_responses, ds_model: str = "deepseek-v4-pro"):
+def build_client(
+    *,
+    ds_responses,
+    ds_model: str = "deepseek-v4-flash",
+    zai_responses=None,
+):
     llm = object.__new__(LLMClient)
-    llm._zai = FakeClient(FakeCompletions(error=RuntimeError("rate limited")))
+    llm._zai_completions = FakeCompletions(
+        zai_responses,
+        error=None if zai_responses is not None else RuntimeError("rate limited"),
+    )
+    llm._zai = FakeClient(llm._zai_completions)
     llm._zai_model = "glm-5-turbo"
     llm._zai_extra = {"thinking": {"type": "disabled"}}
     llm._ds_completions = FakeCompletions(ds_responses)
     llm._ds = FakeClient(llm._ds_completions)
     llm._ds_model = ds_model
     return llm
+
+
+def test_deepseek_flash_is_called_before_glm():
+    llm = build_client(
+        ds_responses=[FakeResponse("served by flash")],
+        zai_responses=[FakeResponse("served by glm")],
+    )
+
+    result = llm._call(
+        messages=[{"role": "user", "content": "say ok"}],
+        temperature=0,
+        max_tokens=20,
+    )
+
+    assert result == "served by flash"
+    assert llm._ds_completions.calls[0]["model"] == "deepseek-v4-flash"
+    assert llm._zai_completions.calls == []
 
 
 def test_reasoning_fallback_gets_extra_completion_budget():

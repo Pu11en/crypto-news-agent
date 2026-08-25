@@ -1,7 +1,7 @@
-"""LLM client with automatic fallback: z.ai GLM -> DeepSeek (on rate-limit / error).
+"""LLM client with automatic fallback: DeepSeek -> z.ai GLM.
 
-z.ai GLM is the primary provider. When it rate-limits or fails, calls fall
-through to DeepSeek transparently. Both are OpenAI-compatible.
+DeepSeek V4 Flash is the default provider. When it fails, calls fall through
+to z.ai GLM transparently. Both are OpenAI-compatible.
 """
 
 from __future__ import annotations
@@ -84,31 +84,10 @@ class LLMClient:
         temperature: float,
         max_tokens: int,
     ) -> str:
-        """Try z.ai GLM, fall through to DeepSeek on any error."""
+        """Try DeepSeek first, then fall through to z.ai GLM on failure."""
         errors: list[str] = []
 
-        # Primary: z.ai GLM
-        try:
-            resp = self._zai.chat.completions.create(
-                model=self._zai_model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                extra_body=self._zai_extra,
-            )
-            content, finish_reason, reasoning_chars = self._content_from_response(resp)
-            if content:
-                return content
-            raise LLMError(
-                "empty content "
-                f"(finish_reason={finish_reason}, reasoning_chars={reasoning_chars})"
-            )
-        except Exception as e:
-            msg = f"z.ai {self._zai_model}: {e}"
-            errors.append(msg)
-            log.warning("primary LLM failed: %s", msg)
-
-        # Fallback: DeepSeek
+        # Primary: DeepSeek
         if self._ds is not None:
             try:
                 ds_max_tokens = self._deepseek_max_tokens(max_tokens)
@@ -122,7 +101,7 @@ class LLMClient:
                 if not content and finish_reason == "length":
                     retry_tokens = max(ds_max_tokens * 2, 8192)
                     log.warning(
-                        "fallback DeepSeek returned empty content after %d tokens "
+                        "primary DeepSeek returned empty content after %d tokens "
                         "(reasoning_chars=%d); retrying with %d tokens",
                         ds_max_tokens,
                         reasoning_chars,
@@ -136,20 +115,44 @@ class LLMClient:
                     )
                     content, finish_reason, reasoning_chars = self._content_from_response(resp)
                 if content:
-                    log.info("fallback DeepSeek ok (%d chars)", len(content))
+                    log.info("primary DeepSeek ok (%d chars)", len(content))
                     return content
                 msg = (
                     f"DeepSeek {self._ds_model}: empty content "
                     f"(finish_reason={finish_reason}, reasoning_chars={reasoning_chars})"
                 )
                 errors.append(msg)
-                log.error("fallback LLM returned empty content: %s", msg)
+                log.error("primary LLM returned empty content: %s", msg)
             except Exception as e:
                 msg = f"DeepSeek {self._ds_model}: {e}"
                 errors.append(msg)
-                log.exception("fallback LLM also failed")
+                log.warning("primary LLM failed: %s", msg)
         else:
             errors.append("DeepSeek not configured")
+
+        # Fallback: z.ai GLM
+        try:
+            resp = self._zai.chat.completions.create(
+                model=self._zai_model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                extra_body=self._zai_extra,
+            )
+            content, finish_reason, reasoning_chars = self._content_from_response(resp)
+            if content:
+                log.info("fallback z.ai GLM ok (%d chars)", len(content))
+                return content
+            msg = (
+                f"z.ai {self._zai_model}: empty content "
+                f"(finish_reason={finish_reason}, reasoning_chars={reasoning_chars})"
+            )
+            errors.append(msg)
+            log.error("fallback LLM returned empty content: %s", msg)
+        except Exception as e:
+            msg = f"z.ai {self._zai_model}: {e}"
+            errors.append(msg)
+            log.exception("fallback LLM also failed")
 
         raise LLMError(" | ".join(errors))
 
