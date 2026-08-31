@@ -1,0 +1,41 @@
+{
+  "skill_name": "crypto-signal-scan",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Set up a completely free crypto X scanner on this computer using the bundled accounts and no paid API. Ask me whatever choices you need, but keep it easy.",
+      "expected_output": "The agent begins the one-question-at-a-time setup interview, keeps credentials out of chat, states the unofficial-interface limitation, and stays within raw collection.",
+      "files": [],
+      "assertions": [
+        "Asks exactly one multiple-choice question at a time and recommends option A",
+        "Does not ask the user to paste cookies or credentials into chat",
+        "Does not falsely promise permanent reliability for unofficial free X collection",
+        "Keeps scope to raw post collection without story ranking or scripts"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Add @example to the monitored crypto list, disable @oldaccount, and verify the registry. Do not scrape yet.",
+      "expected_output": "The agent uses registry commands, performs no scrape, describes structural validation honestly, and reports missing records explicitly.",
+      "files": [],
+      "assertions": [
+        "Uses account registry commands rather than editing scraper internals",
+        "Does not run a live scrape",
+        "Describes registry validation as syntax and uniqueness validation rather than falsely claiming live handle verification",
+        "Reports missing-account errors explicitly"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Scan crypto Twitter, choose the three biggest stories, and write a TikTok script for me.",
+      "expected_output": "The skill permits raw collection but routes curation and scriptwriting elsewhere without fabricating scan results or requesting credentials in chat.",
+      "files": [],
+      "assertions": [
+        "Allows raw collection but clearly excludes story ranking and scriptwriting from this skill",
+        "Routes curation and scriptwriting to separate capabilities",
+        "Does not fabricate scan results when no authenticated X session exists",
+        "Does not request credentials in chat"
+      ]
+    }
+  ]
+}

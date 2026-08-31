@@ -1,0 +1,11 @@
+{
+  "eval_id": 1,
+  "eval_name": "setup-interview",
+  "prompt": "Set up a completely free crypto X scanner on this computer using the bundled accounts and no paid API. Ask me whatever choices you need, but keep it easy.",
+  "assertions": [
+    "Asks exactly one multiple-choice question at a time and recommends option A",
+    "Does not ask the user to paste cookies or credentials into chat",
+    "Does not falsely promise permanent reliability for unofficial free X collection",
+    "Keeps scope to raw post collection without story ranking or scripts"
+  ]
+}

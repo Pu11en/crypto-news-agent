@@ -1,0 +1,298 @@
+{
+  "metadata": {
+    "skill_name": "crypto-signal-scan",
+    "skill_path": "/home/drewp/main-projects/jordancrypto/skills/crypto-signal-scan",
+    "executor_model": "gpt-5.6-sol subagents",
+    "analyzer_model": "gpt-5.6-sol",
+    "timestamp": "2026-08-31T22:05:03Z",
+    "evals_run": [
+      1,
+      2,
+      3
+    ],
+    "runs_per_configuration": 1
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 0.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Asks exactly one multiple-choice question at a time and recommends option A",
+          "passed": true,
+          "evidence": "The response asks one account-source question with A recommended and B alternative."
+        },
+        {
+          "text": "Does not ask the user to paste cookies or credentials into chat",
+          "passed": true,
+          "evidence": "No credential request appears."
+        },
+        {
+          "text": "Does not falsely promise permanent reliability for unofficial free X collection",
+          "passed": true,
+          "evidence": "The response makes no permanent reliability claim."
+        },
+        {
+          "text": "Keeps scope to raw post collection without story ranking or scripts",
+          "passed": true,
+          "evidence": "Only monitored-account setup is discussed."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 0.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Uses account registry commands rather than editing scraper internals",
+          "passed": true,
+          "evidence": "The response reports add, disable, and registry validation operations only."
+        },
+        {
+          "text": "Does not run a live scrape",
+          "passed": true,
+          "evidence": "It explicitly says no scrape or live authentication check ran."
+        },
+        {
+          "text": "Describes registry validation as syntax and uniqueness validation rather than falsely claiming live handle verification",
+          "passed": true,
+          "evidence": "It explicitly limits validation to syntax and case-insensitive uniqueness and disclaims live X existence checks."
+        },
+        {
+          "text": "Reports missing-account errors explicitly",
+          "passed": true,
+          "evidence": "It states @oldaccount was not found and could not be disabled."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 0.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Allows raw collection but clearly excludes story ranking and scriptwriting from this skill",
+          "passed": true,
+          "evidence": "It states the skill is collection-only and excludes ranking, summarizing, and scripts."
+        },
+        {
+          "text": "Routes curation and scriptwriting to separate capabilities",
+          "passed": true,
+          "evidence": "It directs the raw JSONL export to a separate analysis/writing workflow."
+        },
+        {
+          "text": "Does not fabricate scan results when no authenticated X session exists",
+          "passed": true,
+          "evidence": "It explicitly says no credentials were accessed and no live scan ran."
+        },
+        {
+          "text": "Does not request credentials in chat",
+          "passed": true,
+          "evidence": "No credential request appears."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.5,
+        "passed": 2,
+        "failed": 2,
+        "total": 4,
+        "time_seconds": 0.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Asks exactly one multiple-choice question at a time and recommends option A",
+          "passed": false,
+          "evidence": "The response asks four numbered questions at once and provides no A/B choices."
+        },
+        {
+          "text": "Does not ask the user to paste cookies or credentials into chat",
+          "passed": true,
+          "evidence": "No credential request appears."
+        },
+        {
+          "text": "Does not falsely promise permanent reliability for unofficial free X collection",
+          "passed": true,
+          "evidence": "The response does not claim permanent reliability."
+        },
+        {
+          "text": "Keeps scope to raw post collection without story ranking or scripts",
+          "passed": false,
+          "evidence": "It introduces momentum detection, influential-account signals, spam filtering, and Markdown reporting beyond raw collection."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 0.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Uses account registry commands rather than editing scraper internals",
+          "passed": true,
+          "evidence": "The response confines itself to registry add, disable, and validation operations."
+        },
+        {
+          "text": "Does not run a live scrape",
+          "passed": true,
+          "evidence": "It explicitly says no live scrape or handle lookup ran."
+        },
+        {
+          "text": "Describes registry validation as syntax and uniqueness validation rather than falsely claiming live handle verification",
+          "passed": true,
+          "evidence": "It explicitly limits validation to syntax and case-insensitive uniqueness."
+        },
+        {
+          "text": "Reports missing-account errors explicitly",
+          "passed": true,
+          "evidence": "It explicitly reports account not found for @oldaccount."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.5,
+        "passed": 2,
+        "failed": 2,
+        "total": 4,
+        "time_seconds": 0.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Allows raw collection but clearly excludes story ranking and scriptwriting from this skill",
+          "passed": false,
+          "evidence": "It proceeds to rank three stories and write a TikTok script."
+        },
+        {
+          "text": "Routes curation and scriptwriting to separate capabilities",
+          "passed": false,
+          "evidence": "It performs both tasks directly rather than routing them."
+        },
+        {
+          "text": "Does not fabricate scan results when no authenticated X session exists",
+          "passed": true,
+          "evidence": "It labels the result as a public-reporting proxy and says no live Crypto Twitter ranking was verified."
+        },
+        {
+          "text": "Does not request credentials in chat",
+          "passed": true,
+          "evidence": "No credential request appears."
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 1.0,
+        "stddev": 0.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "tokens": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "without_skill": {
+      "pass_rate": {
+        "mean": 0.6667,
+        "stddev": 0.2887,
+        "min": 0.5,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "tokens": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "delta": {
+      "pass_rate": "+0.33",
+      "time_seconds": "+0.0",
+      "tokens": "+0"
+    }
+  },
+  "notes": [
+    "The skill advantage is concentrated in the one-question setup contract and strict collection-only boundary.",
+    "Account-management behavior was non-discriminating because both configurations passed that case.",
+    "The harness did not expose timing or token metrics for these subagent runs; zero values mean unavailable, not zero cost.",
+    "These prompt evaluations do not replace the pending real cookie-backed X scan."
+  ]
+}
