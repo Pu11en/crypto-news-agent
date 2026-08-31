@@ -110,6 +110,23 @@ class CryptoSignalScanTests(unittest.TestCase):
             self.assertFalse(added["enabled"])
             self.assertEqual("news|bitcoin", added["tags"])
 
+    def test_twscrape_provider_enforces_exact_limit(self):
+        class FakeApi:
+            async def user_by_login(self, username):
+                return SimpleNamespace(id=42)
+
+            async def user_tweets(self, user_id, limit):
+                for index in range(12):
+                    yield index
+
+        provider = object.__new__(scan.TwscrapeProvider)
+        provider.api = FakeApi()
+
+        async def gather():
+            return [post async for post in provider.user_posts("lookonchain", 5)]
+
+        self.assertEqual([0, 1, 2, 3, 4], asyncio.run(gather()))
+
     def test_collection_emits_raw_schema_and_deduplicates(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(scan.metadata, "version", return_value="0.20.1"):
             paths = scan.app_paths(tmp)

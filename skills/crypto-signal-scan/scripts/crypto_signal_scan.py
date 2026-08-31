@@ -378,8 +378,12 @@ class TwscrapeProvider:
         user = await self.api.user_by_login(username)
         if user is None:
             raise RuntimeError("account not found")
+        emitted = 0
         async for post in self.api.user_tweets(user.id, limit=limit):
+            if emitted >= limit:
+                break
             yield post
+            emitted += 1
 
 
 def media_urls(post: Any) -> list[str]:
