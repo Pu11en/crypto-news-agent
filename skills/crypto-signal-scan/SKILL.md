@@ -45,6 +45,16 @@ python scripts/run.py scan --hours 24  # scans the next account in the persisten
 
 `auth-add` requires a real interactive local terminal and fails closed otherwise. Have the user open a separate terminal and enter cookies there; never ask them to paste values into chat or an agent tool.
 
+## Natural-language invocation
+
+When the user says “scan my crypto accounts,” “refresh my crypto feed,” “show me the latest crypto posts,” or similar:
+
+1. Run `python scripts/run.py doctor --live-auth`; if it is not ready, repair setup without requesting cookies in chat.
+2. For an interactive result, run `python scripts/run.py cycle --hours 24 --limit 20 --max-runtime-seconds 120 --max-accounts 2`.
+3. Run `python scripts/run.py latest`, read its `combined.jsonl` and manifest, and show the user the status plus up to 10 newly emitted posts verbatim as author, UTC time, text, and exact X URL. Do not summarize or rank them.
+4. If no new posts were emitted, clearly distinguish duplicates, no eligible posts, rate limiting, and authentication failure. Give the exact `retry_after` when present.
+5. Only launch the long 12-hour cycle when the user explicitly asks for the full daily registry run and understands the process must stay running.
+
 ## Common operations
 
 ```bash

@@ -108,6 +108,14 @@ To delete the local X session physically:
 python scripts/run.py auth-remove --yes
 ```
 
+## New-session natural-language activation test
+
+After setup and validation, tell the user to close this agent session, start a new Claude Code/Codex session, and send exactly:
+
+> Scan my monitored crypto accounts now and show me the new raw posts with author, time, text, and X link.
+
+The new agent should automatically load this skill, run live-auth doctor, execute the short interactive cycle defined in `SKILL.md`, and display up to 10 raw posts plus the manifest/output paths. If the client does not auto-load it, verify the client skill directory and restart once; direct script operation remains available.
+
 ## Completion report
 
 Return:
