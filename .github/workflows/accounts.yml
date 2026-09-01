@@ -1,16 +1,16 @@
-name: crypto-news-desk
+name: accounts
 
 on:
   push:
     paths:
-      - 'skills/crypto-news-desk/**'
-      - 'dist/crypto-news-desk.skill'
-      - '.github/workflows/crypto-news-desk.yml'
+      - 'skills/accounts/**'
+      - 'dist/accounts.skill'
+      - '.github/workflows/accounts.yml'
   pull_request:
     paths:
-      - 'skills/crypto-news-desk/**'
-      - 'dist/crypto-news-desk.skill'
-      - '.github/workflows/crypto-news-desk.yml'
+      - 'skills/accounts/**'
+      - 'dist/accounts.skill'
+      - '.github/workflows/accounts.yml'
 
 permissions:
   contents: read
@@ -35,12 +35,12 @@ jobs:
       - name: Run isolated skill tests
         shell: bash
         env:
-          CRYPTO_NEWS_DESK_HOME: ${{ runner.temp }}/crypto-news-desk
-        run: python skills/crypto-news-desk/scripts/run.py test
+          TWITTER_NEWS_HOME: ${{ runner.temp }}/twitter-news
+        run: python skills/accounts/scripts/run.py test
       - name: Verify pre-auth doctor
         shell: bash
         env:
-          CRYPTO_NEWS_DESK_HOME: ${{ runner.temp }}/crypto-signal-doctor
+          TWITTER_NEWS_HOME: ${{ runner.temp }}/twitter-news-doctor
         run: |
-          python skills/crypto-news-desk/scripts/run.py init --acknowledge-x-terms-risk
-          python skills/crypto-news-desk/scripts/run.py doctor
+          python skills/accounts/scripts/run.py init --acknowledge-x-terms-risk
+          python skills/accounts/scripts/run.py doctor

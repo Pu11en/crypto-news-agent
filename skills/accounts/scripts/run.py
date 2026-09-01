@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the isolated runtime on first use, then run Crypto News Desk."""
+"""Bootstrap the shared Twitter News runtime, then run Accounts."""
 
 from __future__ import annotations
 
@@ -13,40 +13,30 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parent.parent
 REQUIREMENTS = SKILL_DIR / "requirements.txt"
 CONSTRAINTS = SKILL_DIR / "constraints.txt"
-TARGET = SKILL_DIR / "scripts" / "crypto_news_desk.py"
+TARGET = SKILL_DIR / "scripts" / "accounts.py"
 TESTS = SKILL_DIR / "tests"
 
 
-def rewrite_legacy_output_paths(preferred: Path, legacy: Path) -> None:
-    output = preferred / "output"
-    if not output.exists():
-        return
-    old = str(legacy)
-    new = str(preferred)
-    for path in output.rglob("*.json"):
-        text = path.read_text(encoding="utf-8")
-        if old in text:
-            path.write_text(text.replace(old, new), encoding="utf-8")
-
-
 def runtime_root() -> Path:
-    if os.environ.get("CRYPTO_NEWS_DESK_HOME"):
-        return Path(os.environ["CRYPTO_NEWS_DESK_HOME"]).expanduser() / "runtime"
-    if os.environ.get("CRYPTO_SIGNAL_HOME"):
-        return Path(os.environ["CRYPTO_SIGNAL_HOME"]).expanduser() / "runtime"
+    if os.environ.get("TWITTER_NEWS_HOME"):
+        return Path(os.environ["TWITTER_NEWS_HOME"]).expanduser() / "runtime"
+    for variable in ("CRYPTO_NEWS_DESK_HOME", "CRYPTO_SIGNAL_HOME"):
+        if os.environ.get(variable):
+            return Path(os.environ[variable]).expanduser() / "runtime"
     if os.name == "nt":
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
     else:
         base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    preferred = base / "crypto-news-desk"
-    legacy = base / "crypto-signal-scan"
-    if legacy.exists() and not preferred.exists():
-        try:
-            legacy.rename(preferred)
-        except OSError:
-            return legacy / "runtime"
-    rewrite_legacy_output_paths(preferred, legacy)
-    return preferred / "runtime"
+    toolkit = base / "twitter-news"
+    destination = toolkit / "runtime"
+    if not destination.exists():
+        for name in ("crypto-news-desk", "crypto-signal-scan"):
+            source = base / name / "runtime"
+            if source.exists():
+                toolkit.mkdir(parents=True, exist_ok=True, mode=0o700)
+                source.rename(destination)
+                break
+    return destination
 
 
 def venv_python(root: Path) -> Path:

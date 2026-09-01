@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local X collection and creative source feed for Crypto News Desk."""
+"""The Accounts feed for the Twitter News toolkit."""
 
 from __future__ import annotations
 
@@ -27,8 +27,9 @@ from typing import Any, AsyncIterator, Protocol
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_ACCOUNTS = SKILL_DIR / "assets" / "accounts.csv"
-APP_NAME = "crypto-news-desk"
-LEGACY_APP_NAME = "crypto-signal-scan"
+TOOLKIT_NAME = "twitter-news"
+PROFILE_NAME = "accounts"
+LEGACY_APP_NAMES = ("crypto-news-desk", "crypto-signal-scan")
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 
 
@@ -43,50 +44,75 @@ class Paths:
     output: Path
 
 
-def rewrite_legacy_output_paths(preferred: Path, legacy: Path) -> None:
-    output = preferred / "output"
+def rewrite_legacy_output_paths(profile_root: Path, legacy_roots: list[Path]) -> None:
+    output = profile_root / "output"
     if not output.exists():
         return
-    old = str(legacy)
-    new = str(preferred)
+    replacements = [(str(path), str(profile_root)) for path in legacy_roots]
     for path in output.rglob("*.json"):
         text = path.read_text(encoding="utf-8")
-        if old in text:
-            path.write_text(text.replace(old, new), encoding="utf-8")
+        updated = text
+        for old, new in replacements:
+            updated = updated.replace(old, new)
+        if updated != text:
+            path.write_text(updated, encoding="utf-8")
 
 
-def migrate_legacy_root(preferred: Path, legacy: Path) -> Path:
-    if legacy.exists() and not preferred.exists():
+def migrate_legacy_roots(toolkit_root: Path, profile_root: Path, legacy_roots: list[Path]) -> tuple[Path, Path]:
+    toolkit_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    profile_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    for legacy in legacy_roots:
+        if not legacy.exists():
+            continue
+        for shared_name in ("x-session.sqlite", "scan.lock"):
+            source = legacy / shared_name
+            destination = toolkit_root / shared_name
+            if source.exists() and not destination.exists():
+                source.rename(destination)
+        for name in ("config.json", "accounts.csv", "state.sqlite", "output"):
+            source = legacy / name
+            destination = profile_root / name
+            if source.exists() and not destination.exists():
+                source.rename(destination)
         try:
-            legacy.rename(preferred)
+            legacy.rmdir()
         except OSError:
-            return legacy
-    rewrite_legacy_output_paths(preferred, legacy)
-    return preferred
+            pass
+    rewrite_legacy_output_paths(profile_root, legacy_roots)
+    return toolkit_root, profile_root
 
 
-def default_app_root() -> Path:
-    if os.environ.get("CRYPTO_NEWS_DESK_HOME"):
-        return Path(os.environ["CRYPTO_NEWS_DESK_HOME"]).expanduser()
-    if os.environ.get("CRYPTO_SIGNAL_HOME"):
-        return Path(os.environ["CRYPTO_SIGNAL_HOME"]).expanduser()
+def default_roots() -> tuple[Path, Path]:
+    if os.environ.get("TWITTER_NEWS_HOME"):
+        toolkit_root = Path(os.environ["TWITTER_NEWS_HOME"]).expanduser()
+        return toolkit_root, toolkit_root / PROFILE_NAME
+    for variable in ("CRYPTO_NEWS_DESK_HOME", "CRYPTO_SIGNAL_HOME"):
+        if os.environ.get(variable):
+            legacy_root = Path(os.environ[variable]).expanduser()
+            return legacy_root, legacy_root
     if os.name == "nt":
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
     else:
         base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return migrate_legacy_root(base / APP_NAME, base / LEGACY_APP_NAME)
+    toolkit_root = base / TOOLKIT_NAME
+    profile_root = toolkit_root / PROFILE_NAME
+    legacy_roots = [base / name for name in LEGACY_APP_NAMES]
+    return migrate_legacy_roots(toolkit_root, profile_root, legacy_roots)
 
 
 def app_paths(home: str | None = None) -> Paths:
-    root = Path(home).expanduser() if home else default_app_root()
+    if home:
+        toolkit_root = profile_root = Path(home).expanduser()
+    else:
+        toolkit_root, profile_root = default_roots()
     return Paths(
-        root=root,
-        config=root / "config.json",
-        accounts=root / "accounts.csv",
-        session_db=root / "x-session.sqlite",
-        state_db=root / "state.sqlite",
-        scan_lock=root / "scan.lock",
-        output=root / "output",
+        root=profile_root,
+        config=profile_root / "config.json",
+        accounts=profile_root / "accounts.csv",
+        session_db=toolkit_root / "x-session.sqlite",
+        state_db=profile_root / "state.sqlite",
+        scan_lock=toolkit_root / "scan.lock",
+        output=profile_root / "output",
     )
 
 
@@ -115,6 +141,8 @@ def restrict_mode(path: Path, unix_mode: int) -> None:
 
 
 def secure_runtime(paths: Paths) -> None:
+    paths.session_db.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    restrict_mode(paths.session_db.parent, 0o700)
     paths.root.mkdir(parents=True, exist_ok=True, mode=0o700)
     restrict_mode(paths.root, 0o700)
     paths.output.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -144,7 +172,7 @@ def scan_process_lock(path: Path):
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as exc:
         handle.close()
-        raise RuntimeError("another crypto-news-desk process is already running") from exc
+        raise RuntimeError("another Twitter News scrape is already running") from exc
     try:
         yield
     finally:
@@ -187,7 +215,7 @@ def init_command(args: argparse.Namespace) -> int:
         atomic_json(paths.config, config)
     init_state(paths.state_db)
     secure_runtime(paths)
-    print(f"Initialized {APP_NAME} at {paths.root}")
+    print(f"Initialized Twitter News/{PROFILE_NAME} at {paths.root}")
     if not load_config(paths).get("acknowledge_x_terms_risk"):
         print("Live scans disabled until init is rerun with --acknowledge-x-terms-risk.")
     return 0

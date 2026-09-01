@@ -1,10 +1,10 @@
 ---
-name: crypto-news-desk
-description: Collect fresh public X posts from a curated crypto account list using one user-owned browser session, preserve raw attributable outputs, and use the collected feed as creative source material. Use for crypto Twitter scans, monitored-account scrapes, raw exports, saved-result review, newsworthy story selection, news-show rundowns, anchor notes, summaries, scripts, or other creative work based on the scraped posts.
+name: accounts
+description: The Accounts skill in the Twitter News toolkit. Scrape the complete monitored crypto account registry for the previous 24 hours, preserve attributable X posts, and use the resulting feed for selection, summaries, rundowns, scripts, or other creative work. Use when the user says run Accounts, run the Twitter News accounts skill, scan all monitored crypto accounts, or work from the latest Accounts scrape.
 compatibility: Python 3.10+ and a user-owned X account session are required. The bundled collector uses the unofficial twscrape interface and may be affected by X changes or terms enforcement.
 ---
 
-# Crypto News Desk
+# Accounts
 
 Collect public posts from an explicit account registry, preserve raw attribution, and then use those posts as source material for whatever the user asks next.
 
@@ -40,7 +40,7 @@ Prefer `auth-add --clipboard`: have the user copy the whole x.com DevTools cooki
 
 ## Natural-language invocation
 
-A natural request such as “run the crypto news desk,” “run the crypto scrape,” or “get me fresh crypto news” defaults to a full 24-hour registry scan. Do not make the user choose a mode first. Run exactly one shell invocation: `python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial`. It performs live-auth preflight, attempts every enabled monitored account, publishes output, and prints up to 10 posts.
+A natural request such as “run Accounts,” “run the Twitter News accounts skill,” “run the crypto scrape,” or “get me fresh crypto news” defaults to a full 24-hour registry scan. Do not make the user choose a mode first. Run exactly one shell invocation: `python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial`. It performs live-auth preflight, attempts every enabled monitored account, publishes output, and prints up to 10 posts.
 
 Follow explicit requests directly: named handles use targeted `scan --account ...`; “show saved/latest” uses `show` without contacting X; “create from the latest results” loads all current-run posts with `show --scope all --limit 100` and completes the requested creative task; the slow `cycle` mode is used only when specifically requested.
 
@@ -76,6 +76,7 @@ Use `python scripts/run.py --help` for complete arguments.
 - `scan` is targeted/manual; `cycle` is the explicitly selected legacy timeline-by-timeline mode.
 - Only one scan process may run at a time; overlapping invocations fail explicitly instead of sharing the session concurrently.
 - Respect 429 responses, challenges, and disabled sessions. A rate-limited manifest marks the error retryable and reports the earliest known `retry_after`; do not retry before it.
+- Share one X session and isolated Python runtime under the `twitter-news` toolkit root; keep this skill's registry, deduplication state, and outputs under its `accounts` profile.
 - Store runtime state under the platform's user data/config directories, never inside the repository.
 - Emit exact source URLs and timestamps.
 

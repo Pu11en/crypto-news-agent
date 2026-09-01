@@ -1,27 +1,27 @@
-# crypto-news-agent
+# Twitter News
 
-## Crypto News Desk
+## Accounts skill
 
-This repository includes [`crypto-news-desk`](skills/crypto-news-desk/), a portable Agent Skill that uses one user-owned X browser session to collect public posts from a bundled 77-account crypto registry without a paid API, then makes that feed available for story selection, rundowns, scripts, and other creative work.
+This repository includes [`accounts`](skills/accounts/), the first Twitter News Agent Skill. It uses one user-owned X browser session to collect public posts from a bundled 77-account crypto registry without a paid API, then makes that feed available for story selection, rundowns, scripts, and other creative work. The planned next skill is `barron` for 12-hour finance and memecoin coverage; it remains unbuilt until `accounts` passes fresh end-to-end verification.
 
 **Give this repository to Claude Code, Codex, or another local coding agent and send it:**
 
 ```text
-Install and validate the crypto-news-desk Agent Skill from this repository.
-First read skills/crypto-news-desk/references/installer-agent-prompt.md and follow it exactly.
+Install and validate the accounts Agent Skill from this repository.
+First read skills/accounts/references/installer-agent-prompt.md and follow it exactly.
 Guide me one question at a time, keep cookie entry in the hidden local auth-add prompt, prove a live scan and duplicate suppression, run the tests, then show me the everyday scan command.
 ```
 
 Start here:
 
-- **Complete setup and everyday-use guide:** [`docs/CRYPTO_NEWS_DESK.md`](docs/CRYPTO_NEWS_DESK.md)
-- **Full coding-agent installation prompt:** [`skills/crypto-news-desk/references/installer-agent-prompt.md`](skills/crypto-news-desk/references/installer-agent-prompt.md)
-- **Packaged Agent Skill:** [`dist/crypto-news-desk.skill`](dist/crypto-news-desk.skill)
-- **Bundled monitored accounts:** [`skills/crypto-news-desk/assets/accounts.csv`](skills/crypto-news-desk/assets/accounts.csv)
+- **Complete setup and everyday-use guide:** [`docs/TWITTER_NEWS.md`](docs/TWITTER_NEWS.md)
+- **Full coding-agent installation prompt:** [`skills/accounts/references/installer-agent-prompt.md`](skills/accounts/references/installer-agent-prompt.md)
+- **Packaged Agent Skill:** [`dist/accounts.skill`](dist/accounts.skill)
+- **Bundled monitored accounts:** [`skills/accounts/assets/accounts.csv`](skills/accounts/assets/accounts.csv)
 
 Daily command after installation:
 
-From the installed `crypto-news-desk` skill directory:
+From the installed `accounts` skill directory:
 
 ```bash
 python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial
