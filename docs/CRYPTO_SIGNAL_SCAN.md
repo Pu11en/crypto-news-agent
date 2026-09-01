@@ -93,7 +93,7 @@ python scripts/run.py test
 From the installed skill directory, run:
 
 ```bash
-python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900
+python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial
 ```
 
 This full-registry scan includes every enabled account in bounded batched X search queries and publishes one combined raw JSONL plus a registry manifest. The manifest explicitly reports enabled, queried, and unqueried accounts and never equates a successful query pass with complete X coverage. Do not overlap scans.

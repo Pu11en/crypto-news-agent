@@ -24,7 +24,7 @@ Daily command after installation:
 From the installed `crypto-signal-scan` skill directory:
 
 ```bash
-python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900
+python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial
 ```
 
 Normal scans persistently rotate through one account at a time, suppress duplicate post IDs, and print a `retry_after` time when X rate-limits the session. Cookie values must never be pasted into agent chat. The interface is unofficial and cannot be guaranteed permanently stable or authorized by X.

@@ -54,11 +54,13 @@ For a vague request such as “run the crypto scrape,” do not guess or contact
 - **C. Show saved results** — display the latest collected posts without contacting X.
 - **D. Slow timeline cycle** — legacy one-account-at-a-time timeline collection; use only when explicitly chosen.
 
-If the user explicitly says “all monitored accounts,” “full registry,” names specific handles, or asks for saved results, skip the menu and use the stated mode. Before any live mode run `doctor --live-auth` and repair setup if needed without requesting cookies in chat.
+If the user explicitly says “all monitored accounts,” “full registry,” names specific handles, or asks for saved results, skip the menu and use the stated mode.
 
-For A run `python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900`. For B run targeted `scan --account ...`. For C run `latest` and read its files. For D run `cycle` with an explicit runtime budget.
+For A use exactly one shell invocation: `python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial`. It performs live-auth preflight, scans, publishes output, and prints up to 10 raw posts. This intentionally avoids separate doctor/scan/latest/read permission prompts. For B run live-auth doctor plus targeted `scan --account ...`. For C run `show --limit 10` without contacting X. For D run `cycle` with an explicit runtime budget.
 
-After collection, read the combined JSONL and manifest and show status plus up to 10 newly emitted posts verbatim as author, UTC time, text, and exact X URL. Do not summarize or rank. Always report enabled, queried, and unqueried account counts; distinguish duplicates, no eligible posts, rate limiting, and authentication failure; give exact `retry_after` when present.
+If the client says the installed skill or private runtime is outside the workspace, explain why and request one persistent, narrowly scoped permission for this skill's `python scripts/run.py` commands and runtime directory. Do not repeatedly request one-time approval command by command, and do not request blanket access when the client supports a narrower remembered rule.
+
+After collection, show status plus up to 10 newly emitted posts verbatim as author, UTC time, text, and exact X URL. Do not summarize or rank. Always report enabled, queried, and unqueried account counts; distinguish duplicates, no eligible posts, rate limiting, and authentication failure; give exact `retry_after` when present.
 
 ## Common operations
 
@@ -67,7 +69,7 @@ python scripts/run.py configure --lookback-hours 24 --per-account-limit 20 --pos
 python scripts/run.py accounts list
 python scripts/run.py accounts import /path/accounts.csv --mode merge
 python scripts/run.py accounts validate
-python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900
+python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial
 python scripts/run.py scan --account lookonchain --hours 24 --limit 20
 python scripts/run.py cycle --hours 24 --limit 20 --max-runtime-seconds 43200  # legacy slow mode
 python scripts/run.py latest

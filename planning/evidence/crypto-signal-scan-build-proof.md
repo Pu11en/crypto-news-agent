@@ -28,6 +28,7 @@
 - `pip-audit` found no known vulnerabilities in the resolved pinned requirements.
 - During live proof, `doctor --live-auth` reported one active verified X session with private Unix modes. The corrected `scan-all` completed 26 one-page search batches covering all 76 enabled accounts, left zero unqueried accounts, emitted 12 new records, and suppressed 75 duplicates.
 - Independent re-review found no remaining blocker after the repeatability changes and separately confirmed adapter classification, single-account rotation, cross-process locking, minimum retry selection, manifest schema, one-session enforcement, and package/source parity.
+- An independent brand-new Harness session triggered the skill from “Run the crypto/finance news scrape,” presented the deterministic mode menu, completed a 76/76 full-registry pass, emitted one new post, suppressed 85 duplicates, and displayed the raw author/time/text/link. Its two outside-workspace approval prompts motivated the single-command `--show --allow-partial` UX and persistent narrow-permission guidance.
 - Three prompt evaluations scored 100% with the skill versus 66.7% without it. The skill advantage came from the one-question setup contract and strict collection-only routing; account-management behavior was non-discriminating. Static review: `skills/crypto-signal-scan-workspace/iteration-1/review.html`.
 
 ## Live proof

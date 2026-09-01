@@ -1055,9 +1055,10 @@ def scan_all_command(args: argparse.Namespace) -> int:
         if not config.get("acknowledge_x_terms_risk"):
             raise RuntimeError("live scan disabled; rerun init with --acknowledge-x-terms-risk")
         accounts = load_accounts(paths.accounts, enabled_only=True)
-        stats = asyncio.run(auth_stats(paths))
-        if stats["accounts"] != 1 or stats["active_accounts"] != 1:
-            raise RuntimeError("exactly one active local X session is required; run auth-add")
+        stats = asyncio.run(auth_stats(paths, verify_live=True))
+        if stats["accounts"] != 1 or stats["active_accounts"] != 1 or stats["live_verified"] is not True:
+            detail = f": {stats.get('live_error')}" if stats.get("live_error") else ""
+            raise RuntimeError(f"live X authentication is not ready; run auth-add{detail}")
         hours = args.hours if args.hours is not None else int(config.get("lookback_hours", 24))
         limit = args.limit if args.limit is not None else int(config.get("per_account_limit", 20))
         if hours < 1 or limit < 1 or args.batch_size < 1 or args.batch_size > 15:
@@ -1083,7 +1084,9 @@ def scan_all_command(args: argparse.Namespace) -> int:
         "posts": str(posts),
         "manifest": str(manifest_path),
     }, indent=2))
-    return 0 if manifest["full_registry_pass"] else 3
+    if args.show:
+        show_command(argparse.Namespace(home=args.home, limit=args.show_limit))
+    return 0 if manifest["full_registry_pass"] or args.allow_partial else 3
 
 
 def cycle_command(args: argparse.Namespace) -> int:
@@ -1219,9 +1222,49 @@ def latest_command(args: argparse.Namespace) -> int:
     paths = app_paths(args.home)
     latest = paths.output / "latest.json"
     if not latest.exists():
-        raise RuntimeError("no completed or partial cycle output exists yet; run cycle")
+        raise RuntimeError("no completed or partial output exists yet; run scan-all")
     value = json.loads(latest.read_text(encoding="utf-8"))
     print(json.dumps(value, indent=2, sort_keys=True))
+    return 0
+
+
+def show_command(args: argparse.Namespace) -> int:
+    if args.limit < 1 or args.limit > 100:
+        raise RuntimeError("show --limit must be between 1 and 100")
+    paths = app_paths(args.home)
+    latest_path = paths.output / "latest.json"
+    if not latest_path.exists():
+        raise RuntimeError("no collected output exists yet; run scan-all")
+    latest = json.loads(latest_path.read_text(encoding="utf-8"))
+    manifest = json.loads(Path(latest["manifest"]).read_text(encoding="utf-8"))
+    records: list[dict[str, Any]] = []
+    combined = Path(latest["combined"])
+    if combined.exists():
+        with combined.open(encoding="utf-8") as source:
+            for line in source:
+                if len(records) >= args.limit:
+                    break
+                if line.strip():
+                    record = json.loads(line)
+                    records.append({
+                        "author": "@" + record["username"],
+                        "created_at": record["created_at"],
+                        "text": record["text"],
+                        "x_url": record["public_url"],
+                    })
+    print(json.dumps({
+        "status": manifest.get("status"),
+        "full_registry_pass": manifest.get("full_registry_pass"),
+        "enabled_accounts": manifest.get("enabled_accounts"),
+        "queried_accounts": manifest.get("queried_accounts"),
+        "unqueried_accounts": len(manifest.get("unqueried_usernames", [])),
+        "new_posts": manifest.get("new_posts"),
+        "duplicate_posts": manifest.get("duplicate_posts"),
+        "retry_after": manifest.get("pending_retry_after"),
+        "manifest": latest["manifest"],
+        "combined": latest["combined"],
+        "posts": records,
+    }, indent=2, ensure_ascii=False))
     return 0
 
 
@@ -1381,6 +1424,9 @@ def parser() -> argparse.ArgumentParser:
     scan_all.add_argument("--limit", type=int, help="maximum qualifying posts retained per account")
     scan_all.add_argument("--batch-size", type=int, default=3, help="accounts per one-page X search query (1-15)")
     scan_all.add_argument("--max-runtime-seconds", type=int, default=900)
+    scan_all.add_argument("--show", action="store_true", help="print up to --show-limit raw posts after scanning")
+    scan_all.add_argument("--show-limit", type=int, default=10)
+    scan_all.add_argument("--allow-partial", action="store_true", help="exit successfully when a valid partial manifest was published")
     scan_all.set_defaults(func=scan_all_command)
 
     cycle = sub.add_parser("cycle", help="run legacy per-timeline resumable account cycle")
@@ -1390,8 +1436,12 @@ def parser() -> argparse.ArgumentParser:
     cycle.add_argument("--max-accounts", type=int, help="maximum accounts to advance this cycle")
     cycle.set_defaults(func=cycle_command)
 
-    latest = sub.add_parser("latest", help="show stable paths for the latest cycle output")
+    latest = sub.add_parser("latest", help="show stable paths for the latest collected output")
     latest.set_defaults(func=latest_command)
+
+    show = sub.add_parser("show", help="display latest status and raw posts without contacting X")
+    show.add_argument("--limit", type=int, default=10)
+    show.set_defaults(func=show_command)
 
     health = sub.add_parser("health", help="show per-account scan health")
     health.set_defaults(func=health_command)

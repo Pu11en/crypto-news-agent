@@ -14,6 +14,10 @@ Install and validate `crypto-signal-scan` from this repository. It collects raw 
 - Use one legitimately controlled X session, direct networking, and no proxy rotation, identity rotation, CAPTCHA bypass, purchased cookies, or account farming.
 - Explain before initialization that twscrape uses X's unofficial interface, can break, and may be enforced against under X's terms. Continue only after explicit acceptance.
 
+## Client permissions
+
+Before setup, explain that the installed skill and its private runtime live outside the project workspace, so the coding client may request permission. When supported, ask the user once to remember a narrowly scoped allow rule for this skill's `python scripts/run.py` commands, network access, and its `crypto-signal-scan` user-data directory. Do not trigger a chain of unexplained one-time prompts and do not request unrelated blanket shell access. In DeepSeek Harness, the user may select the session's Full Access preset instead; in Claude Code/Codex, use the client's persistent command/path allow mechanism.
+
 ## Install
 
 1. Verify Python 3.10+ and local terminal access. On Debian/Ubuntu, install the matching `python3-venv` package if venv creation is unavailable.
@@ -89,7 +93,7 @@ python scripts/run.py test
 Use the full-registry command for normal operation:
 
 ```bash
-python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900
+python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial
 ```
 
 It includes every enabled account in safe batched X search queries and writes one combined output. The manifest must report enabled, queried, and unqueried accounts plus `full_registry_pass`. Search is bounded/best-effort and does not promise X returned every post. Keep `cycle` only as an explicitly selected slow legacy timeline mode.

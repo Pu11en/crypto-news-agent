@@ -586,6 +586,11 @@ class CryptoSignalScanTests(unittest.TestCase):
             self.assertEqual(3, len(posts.read_text().splitlines()))
             self.assertTrue(manifest_path.exists())
             self.assertTrue((paths.output / "latest.json").exists())
+            with redirect_stdout(io.StringIO()) as shown:
+                self.assertEqual(0, scan.show_command(SimpleNamespace(home=tmp, limit=2)))
+            display = json.loads(shown.getvalue())
+            self.assertEqual(2, len(display["posts"]))
+            self.assertEqual(3, display["queried_accounts"])
 
     def test_registry_search_reports_unqueried_accounts_on_rate_limit(self):
         retry = datetime.now(timezone.utc) + timedelta(minutes=10)
