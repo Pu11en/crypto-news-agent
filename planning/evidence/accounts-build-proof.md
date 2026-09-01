@@ -1,6 +1,6 @@
 # Twitter News Accounts build proof
 
-**Build state:** production-candidate and live-validated on 2026-09-01 with one user-owned X cookie session.
+**Build state:** production-ready within the disclosed unofficial-X limitations; live-validated on 2026-09-01 with one user-owned X cookie session.
 
 ## Implemented
 
@@ -28,7 +28,7 @@
 - `pip-audit` found no known vulnerabilities in the resolved pinned requirements.
 - The Accounts identity and shared toolkit migration preserved one active verified X session plus saved output under `~/.local/share/twitter-news/accounts`. After the safe history reset removed all outputs and dedup/account-health state while retaining authentication, registry, configuration, and runtime, a genuinely fresh scan completed all 76 enabled accounts with zero unqueried, preserved 87 eligible posts, marked all 87 new with zero previously seen, and reported no pending rate limit. After production hardening, another live full pass again queried 76/76 with zero unqueried, preserved 87 eligible posts, correctly classified 1 new and 86 previously seen, and passed live-auth doctor.
 - Three independent production audits identified and drove fixes for destructive reauthentication, non-atomic output/dedup ordering, unhandled provider/bootstrap failures, corrupt configuration and escaped output pointers, inherited Python-path contamination, stale package risk, expired-cookie recovery, Claude Code installation/permissions, output caps, and routing gaps. Unavoidable X endpoint, cookie-expiration, challenge, rate-limit, and bounded-retrieval risks remain explicitly disclosed.
-- CI now tests source on Ubuntu Python 3.10/3.12 and Windows 3.12, validates release ZIP integrity and exact source contents, extracts it into a Claude Code-style skill path, and runs packaged tests plus pre-auth initialization/doctor.
+- CI now tests source on Ubuntu Python 3.10/3.12 and Windows 3.12, validates release ZIP integrity and exact source contents, extracts it into a Claude Code-style skill path, and runs packaged tests plus pre-auth initialization/doctor. The final matrix passed in [run 33487108460](https://github.com/Pu11en/crypto-news-agent/actions/runs/33487108460).
 - Three early prompt evaluations scored 100% with the skill versus 66.7% without it. Later real-session feedback showed that the collection-only boundary made the feed unusable for creative follow-up, so that restriction was removed while raw outputs remained intact. The obsolete collection-only evaluation artifacts were removed during the product rename.
 - Fresh routing evaluations confirmed that “Open Twitter News” displays the toolkit menu without contacting X, clearly marks Accounts available and Barron planned/not installed, while “Run Accounts” skips the menu and defaults to the exact full-registry 24-hour command. Separate evaluations correctly handled headless Claude Code installation, narrow permissions, expired-cookie recovery without history loss, 429/auth distinction, saved-results curation, and source-linked creative output.
 
