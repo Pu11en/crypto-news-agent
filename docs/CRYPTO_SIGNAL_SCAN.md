@@ -96,7 +96,7 @@ From the installed skill directory, run:
 python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial
 ```
 
-This full-registry scan includes every enabled account in bounded batched X search queries and publishes one combined raw JSONL plus a registry manifest. The manifest explicitly reports enabled, queried, and unqueried accounts and never equates a successful query pass with complete X coverage. Do not overlap scans.
+This full-registry scan includes every enabled account in bounded batched X search queries. It publishes `combined.jsonl` with all eligible current-run posts (`is_new` marks novelty), `new.jsonl` with unseen posts only, and a registry manifest with eligible/new/previously-seen plus enabled/queried/unqueried totals. A successful query pass is not a claim of complete X coverage. Use `show --scope all --limit 100` to display the current scrape. Do not overlap scans.
 
 Inspect the latest output with:
 

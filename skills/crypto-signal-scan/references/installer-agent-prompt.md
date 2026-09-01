@@ -96,7 +96,7 @@ Use the full-registry command for normal operation:
 python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial
 ```
 
-It includes every enabled account in safe batched X search queries and writes one combined output. The manifest must report enabled, queried, and unqueried accounts plus `full_registry_pass`. Search is bounded/best-effort and does not promise X returned every post. Keep `cycle` only as an explicitly selected slow legacy timeline mode.
+It includes every enabled account in safe batched X search queries and writes `combined.jsonl` with all eligible current-run posts plus `new.jsonl` with only globally unseen posts. The manifest must report eligible/new/previously-seen totals, enabled/queried/unqueried accounts, and `full_registry_pass`. Search is bounded/best-effort and does not promise X returned every post. Keep `cycle` only as an explicitly selected slow legacy timeline mode.
 
 Show the user:
 
@@ -105,7 +105,7 @@ python scripts/run.py latest
 python scripts/run.py health
 ```
 
-`latest` prints stable paths to the latest combined JSONL and registry manifest. Open both for the user and explain that JSONL is one JSON object per post with exact X URL, author, text, and timestamps.
+`latest` prints stable paths to the latest combined, new-only, and registry-manifest files. Explain that combined contains all eligible posts from that scrape with `is_new`, while new-only contains only unseen IDs. If asked to show all, use `show --scope all --limit 100` and render post text in fenced code blocks so `$` symbols are not interpreted as math.
 
 To delete the local X session physically:
 

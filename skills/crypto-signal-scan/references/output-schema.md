@@ -49,7 +49,7 @@ SQLite stores seen post IDs, per-account last-success/error health, and the pers
 
 ## Full-registry output
 
-`scan-all` writes `output/registry-scans/<id>/combined.jsonl` and `registry-manifest.json`, then atomically updates `output/latest.json`. Its manifest reports `enabled_accounts`, `queried_accounts`, `queried_usernames`, `unqueried_usernames`, `full_registry_pass`, per-batch results, retry time, and bounded best-effort completeness wording. `full_registry_pass` means every enabled handle appeared in a successful X search query; it does not claim X returned every post.
+`scan-all` writes `output/registry-scans/<id>/combined.jsonl`, `new.jsonl`, and `registry-manifest.json`, then atomically updates `output/latest.json`. `combined.jsonl` contains every eligible post found in that run with boolean `is_new`; `new.jsonl` contains only globally unseen posts. Deduplication therefore marks novelty without hiding the rest of the current scrape. The manifest reports `eligible_posts`, `new_posts`, `duplicate_posts` (previously seen), `enabled_accounts`, `queried_accounts`, `queried_usernames`, `unqueried_usernames`, `full_registry_pass`, per-batch results, retry time, and bounded best-effort completeness wording. `full_registry_pass` means every enabled handle appeared in a successful X search query; it does not claim X returned every post.
 
 ## Legacy cycle output
 

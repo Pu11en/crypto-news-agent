@@ -592,6 +592,24 @@ class CryptoSignalScanTests(unittest.TestCase):
             self.assertEqual(2, len(display["posts"]))
             self.assertEqual(3, display["queried_accounts"])
 
+            repeated, _, repeated_manifest = asyncio.run(scan.collect_registry_search(
+                SearchProvider(), accounts, paths,
+                hours=24, per_account_limit=5, batch_size=2, max_runtime_seconds=60,
+                include_quotes=True, include_replies=False, include_reposts=False,
+            ))
+            self.assertEqual(3, repeated_manifest["eligible_posts"])
+            self.assertEqual(0, repeated_manifest["new_posts"])
+            self.assertEqual(3, repeated_manifest["duplicate_posts"])
+            self.assertEqual(3, len(repeated.read_text().splitlines()))
+            latest = json.loads((paths.output / "latest.json").read_text())
+            self.assertEqual([], Path(latest["new"]).read_text().splitlines())
+            with redirect_stdout(io.StringIO()) as all_shown:
+                scan.show_command(SimpleNamespace(home=tmp, limit=100, scope="all"))
+            self.assertEqual(3, len(json.loads(all_shown.getvalue())["posts"]))
+            with redirect_stdout(io.StringIO()) as new_shown:
+                scan.show_command(SimpleNamespace(home=tmp, limit=100, scope="new"))
+            self.assertEqual(0, len(json.loads(new_shown.getvalue())["posts"]))
+
     def test_registry_search_reports_unqueried_accounts_on_rate_limit(self):
         retry = datetime.now(timezone.utc) + timedelta(minutes=10)
 

@@ -60,7 +60,7 @@ For A use exactly one shell invocation: `python scripts/run.py scan-all --hours 
 
 If the client says the installed skill or private runtime is outside the workspace, explain why and request one persistent, narrowly scoped permission for this skill's `python scripts/run.py` commands and runtime directory. Do not repeatedly request one-time approval command by command, and do not request blanket access when the client supports a narrower remembered rule.
 
-After collection, show status plus up to 10 newly emitted posts verbatim as author, UTC time, text, and exact X URL. Do not summarize or rank. Always report enabled, queried, and unqueried account counts; distinguish duplicates, no eligible posts, rate limiting, and authentication failure; give exact `retry_after` when present.
+After collection, show status plus up to 10 eligible posts from the current run verbatim as author, UTC time, text, exact X URL, and new/previously-seen status. `combined.jsonl` is all eligible current-run posts; `new.jsonl` is only globally new posts. If the user says “show all,” run `python scripts/run.py show --scope all --limit 100`; “show new” uses `--scope new`. Render each post's text in a fenced code block (or escape Markdown dollar signs) so symbols such as `$HYPE` and `$35` remain exact. Do not summarize or rank. Always report eligible/new/previously-seen totals and enabled/queried/unqueried account counts; distinguish no eligible posts, rate limiting, and authentication failure; give exact `retry_after` when present.
 
 ## Common operations
 

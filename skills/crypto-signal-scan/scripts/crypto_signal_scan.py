@@ -915,6 +915,7 @@ async def collect_registry_search(
     run_dir = paths.output / "registry-scans" / f"{started.strftime('%Y%m%dT%H%M%SZ')}-{scan_id[:8]}"
     run_dir.mkdir(parents=True, mode=0o700)
     posts_path = run_dir / "combined.jsonl"
+    new_posts_path = run_dir / "new.jsonl"
     manifest_path = run_dir / "registry-manifest.json"
     allowed = {account["username"].lower() for account in accounts}
     batches = [accounts[index:index + batch_size] for index in range(0, len(accounts), batch_size)]
@@ -926,7 +927,11 @@ async def collect_registry_search(
     pending_retry_after: str | None = None
     init_state(paths.state_db)
 
-    with sqlite3.connect(paths.state_db) as db, posts_path.open("w", encoding="utf-8") as out:
+    with (
+        sqlite3.connect(paths.state_db) as db,
+        posts_path.open("w", encoding="utf-8") as out,
+        new_posts_path.open("w", encoding="utf-8") as new_out,
+    ):
         for batch_number, batch in enumerate(batches, 1):
             names = [account["username"] for account in batch]
             if time.monotonic() >= deadline:
@@ -986,8 +991,12 @@ async def collect_registry_search(
                         continue
                     accepted_per_author[author] = accepted_per_author.get(author, 0) + 1
                     record = normalize_post(post, scan_id, utc_now())
-                    if claim_post(db, record):
-                        out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    is_new = claim_post(db, record)
+                    record["is_new"] = is_new
+                    serialized = json.dumps(record, ensure_ascii=False) + "\n"
+                    out.write(serialized)
+                    if is_new:
+                        new_out.write(serialized)
                         totals["new_posts"] += 1
                     else:
                         totals["duplicate_posts"] += 1
@@ -1033,7 +1042,9 @@ async def collect_registry_search(
         "post_processing_errors": processing_errors,
         "coverage_scope": "all enabled accounts were included in successful X search queries" if full_pass else "partial enabled-registry query coverage",
         "completeness_note": "Search results are bounded and best-effort; full_registry_pass does not claim every X post was returned.",
+        "eligible_posts": totals["new_posts"] + totals["duplicate_posts"],
         "combined_output": str(posts_path),
+        "new_output": str(new_posts_path),
         **totals,
     }
     atomic_json(manifest_path, manifest)
@@ -1042,6 +1053,7 @@ async def collect_registry_search(
         "mode": "batched_registry_search",
         "manifest": str(manifest_path),
         "combined": str(posts_path),
+        "new": str(new_posts_path),
         "published_at": iso(utc_now()),
     })
     return posts_path, manifest_path, manifest
@@ -1085,7 +1097,7 @@ def scan_all_command(args: argparse.Namespace) -> int:
         "manifest": str(manifest_path),
     }, indent=2))
     if args.show:
-        show_command(argparse.Namespace(home=args.home, limit=args.show_limit))
+        show_command(argparse.Namespace(home=args.home, limit=args.show_limit, scope=args.show_scope))
     return 0 if manifest["full_registry_pass"] or args.allow_partial else 3
 
 
@@ -1237,20 +1249,24 @@ def show_command(args: argparse.Namespace) -> int:
         raise RuntimeError("no collected output exists yet; run scan-all")
     latest = json.loads(latest_path.read_text(encoding="utf-8"))
     manifest = json.loads(Path(latest["manifest"]).read_text(encoding="utf-8"))
+    scope = getattr(args, "scope", "all")
     records: list[dict[str, Any]] = []
-    combined = Path(latest["combined"])
-    if combined.exists():
-        with combined.open(encoding="utf-8") as source:
+    selected_path = Path(latest.get("new", latest["combined"])) if scope == "new" else Path(latest["combined"])
+    if selected_path.exists():
+        with selected_path.open(encoding="utf-8") as source:
             for line in source:
                 if len(records) >= args.limit:
                     break
                 if line.strip():
                     record = json.loads(line)
+                    if scope == "new" and not record.get("is_new", True):
+                        continue
                     records.append({
                         "author": "@" + record["username"],
                         "created_at": record["created_at"],
                         "text": record["text"],
                         "x_url": record["public_url"],
+                        "is_new": record.get("is_new", True),
                     })
     print(json.dumps({
         "status": manifest.get("status"),
@@ -1258,11 +1274,14 @@ def show_command(args: argparse.Namespace) -> int:
         "enabled_accounts": manifest.get("enabled_accounts"),
         "queried_accounts": manifest.get("queried_accounts"),
         "unqueried_accounts": len(manifest.get("unqueried_usernames", [])),
+        "eligible_posts": manifest.get("eligible_posts", (manifest.get("new_posts") or 0) + (manifest.get("duplicate_posts") or 0)),
         "new_posts": manifest.get("new_posts"),
-        "duplicate_posts": manifest.get("duplicate_posts"),
+        "previously_seen_posts": manifest.get("duplicate_posts"),
+        "scope": scope,
         "retry_after": manifest.get("pending_retry_after"),
         "manifest": latest["manifest"],
         "combined": latest["combined"],
+        "new_output": latest.get("new"),
         "posts": records,
     }, indent=2, ensure_ascii=False))
     return 0
@@ -1426,6 +1445,7 @@ def parser() -> argparse.ArgumentParser:
     scan_all.add_argument("--max-runtime-seconds", type=int, default=900)
     scan_all.add_argument("--show", action="store_true", help="print up to --show-limit raw posts after scanning")
     scan_all.add_argument("--show-limit", type=int, default=10)
+    scan_all.add_argument("--show-scope", choices=("all", "new"), default="all")
     scan_all.add_argument("--allow-partial", action="store_true", help="exit successfully when a valid partial manifest was published")
     scan_all.set_defaults(func=scan_all_command)
 
@@ -1441,6 +1461,7 @@ def parser() -> argparse.ArgumentParser:
 
     show = sub.add_parser("show", help="display latest status and raw posts without contacting X")
     show.add_argument("--limit", type=int, default=10)
+    show.add_argument("--scope", choices=("all", "new"), default="all")
     show.set_defaults(func=show_command)
 
     health = sub.add_parser("health", help="show per-account scan health")
