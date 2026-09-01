@@ -9,7 +9,7 @@ This repository includes [`accounts`](skills/accounts/), the first Twitter News 
 ```text
 Install and validate the accounts Agent Skill from this repository.
 First read skills/accounts/references/installer-agent-prompt.md and follow it exactly.
-Guide me one question at a time, keep cookie entry in the hidden local auth-add prompt, prove a live scan and duplicate suppression, run the tests, then show me the everyday scan command.
+Guide me one question at a time. Never request cookies in chat: use local auth-add --clipboard after I reply only “copied,” with the separate hidden-terminal prompt as fallback. Prove a live scan and duplicate suppression, run the tests, then show me the everyday scan command.
 ```
 
 Start here:
@@ -18,6 +18,8 @@ Start here:
 - **Full coding-agent installation prompt:** [`skills/accounts/references/installer-agent-prompt.md`](skills/accounts/references/installer-agent-prompt.md)
 - **Packaged Agent Skill:** [`dist/accounts.skill`](dist/accounts.skill)
 - **Bundled monitored accounts:** [`skills/accounts/assets/accounts.csv`](skills/accounts/assets/accounts.csv)
+
+Claude Code global install from a cloned checkout: `mkdir -p ~/.claude/skills && python -m zipfile -e dist/accounts.skill ~/.claude/skills`, verify `~/.claude/skills/accounts/SKILL.md`, then start a fresh session.
 
 Daily command after installation:
 

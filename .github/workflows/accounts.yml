@@ -44,3 +44,78 @@ jobs:
         run: |
           python skills/accounts/scripts/run.py init --acknowledge-x-terms-risk
           python skills/accounts/scripts/run.py doctor
+
+      - name: Verify production release artifact
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+
+          artifact = Path("dist/accounts.skill")
+          source_root = Path("skills/accounts")
+          try:
+              with zipfile.ZipFile(artifact) as archive:
+                  bad = archive.testzip()
+                  if bad is not None:
+                      raise SystemExit(f"invalid ZIP member (CRC failure): {bad}")
+                  infos = [info for info in archive.infolist() if not info.is_dir()]
+                  package_names = []
+                  package_bytes = {}
+                  for info in infos:
+                      name = info.filename.replace("\\", "/")
+                      parts = Path(name).parts
+                      if not parts or parts[0] != "accounts":
+                          raise SystemExit(f"unexpected artifact entry outside accounts/: {name}")
+                      if "__pycache__" in parts or name.endswith(".pyc"):
+                          continue
+                      package_names.append(name.removeprefix("accounts/"))
+                      package_bytes[name.removeprefix("accounts/")] = archive.read(info)
+          except zipfile.BadZipFile as exc:
+              raise SystemExit(f"dist/accounts.skill is not a valid ZIP: {exc}") from exc
+
+          source_names = {
+              path.relative_to(source_root).as_posix()
+              for path in source_root.rglob("*")
+              if path.is_file()
+              and "__pycache__" not in path.parts
+              and "evals" not in path.relative_to(source_root).parts
+              and path.suffix != ".pyc"
+          }
+          packaged_names = set(package_names)
+          duplicate_names = sorted({name for name in package_names if package_names.count(name) > 1})
+          missing = sorted(source_names - packaged_names)
+          extra = sorted(packaged_names - source_names)
+          mismatched = sorted(
+              name for name in source_names & packaged_names
+              if (source_root / name).read_bytes() != package_bytes[name]
+          )
+          if duplicate_names or missing or extra or mismatched:
+              if duplicate_names:
+                  print("Duplicate packaged files:", *duplicate_names, sep="\n  ")
+              if missing:
+                  print("Missing packaged files:", *missing, sep="\n  ")
+              if extra:
+                  print("Extra/stale packaged files:", *extra, sep="\n  ")
+              if mismatched:
+                  print("Packaged files with stale contents:", *mismatched, sep="\n  ")
+              raise SystemExit("release artifact does not exactly match runtime files in skills/accounts/")
+          print(f"Valid ZIP; {len(packaged_names)} packaged runtime files exactly match skills/accounts/")
+          PY
+
+      - name: Run extracted release checks
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        shell: bash
+        run: |
+          set -euo pipefail
+          extracted="$(mktemp -d)"
+          trap 'rm -rf "$extracted"' EXIT
+          mkdir -p "$extracted/.claude/skills"
+          unzip -q dist/accounts.skill -d "$extracted/.claude/skills"
+          test -f "$extracted/.claude/skills/accounts/scripts/run.py"
+          export TWITTER_NEWS_HOME="$extracted/twitter-news"
+          python "$extracted/.claude/skills/accounts/scripts/run.py" test
+          python "$extracted/.claude/skills/accounts/scripts/run.py" init --acknowledge-x-terms-risk
+          python "$extracted/.claude/skills/accounts/scripts/run.py" doctor

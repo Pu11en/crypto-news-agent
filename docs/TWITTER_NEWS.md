@@ -70,6 +70,8 @@ The first `run.py` invocation creates an isolated Python environment and install
 
 If cookies are ever pasted into chat or committed to a repository, treat that session as exposed: log out of X to invalidate it, log back in, and use a newly generated session through `auth-add --clipboard` or hidden `auth-add`.
 
+When a session expires or becomes unusable, do not rerun `init` or `history-reset`: saved outputs, registry, configuration, and deduplication state remain useful. Log back into X, repeat the local cookie import, then run `doctor --live-auth`. Session replacement is failure-atomic: a failed new database write does not first delete the existing session. A 429 is different from expired authentication; preserve partial output and wait until its exact `retry_after`.
+
 ## Verify the installation
 
 ```bash
@@ -79,7 +81,7 @@ python scripts/run.py scan --account lookonchain --hours 6 --limit 5
 
 `doctor --live-auth` must report:
 
-- `configured_accounts: 77`, unless the registry was intentionally changed;
+- `configured_accounts: 76` enabled accounts from 77 bundled entries, unless the registry was intentionally changed;
 - exactly one X session and one active X session;
 - `live_auth_verified: true`;
 - private runtime and session-database permissions on Unix-like systems.
@@ -105,7 +107,7 @@ From the installed skill directory, run:
 python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial
 ```
 
-This full-registry scan includes every enabled account in bounded batched X search queries. It publishes `combined.jsonl` with all eligible current-run posts (`is_new` marks novelty), `new.jsonl` with unseen posts only, and a registry manifest with eligible/new/previously-seen plus enabled/queried/unqueried totals. A successful query pass is not a claim of complete X coverage. Use `show --scope all --limit 100` to display the current scrape. Do not overlap scans.
+This full-registry scan includes every enabled account in bounded batched X search queries. It publishes `combined.jsonl` with all eligible current-run posts (`is_new` marks novelty), `new.jsonl` with unseen posts only, and a registry manifest with eligible/new/previously-seen plus enabled/queried/unqueried totals. A successful query pass is not a claim of complete X coverage. Use `show --scope all --limit 100` to display up to 100 current records. For an exhaustive creative request over a larger feed, use `latest` to locate `combined.jsonl` and process it in batches rather than silently omitting records. Do not overlap scans.
 
 To start Accounts with no prior scrape or deduplication history while keeping the X login, registry, configuration, and runtime, run `python scripts/run.py history-reset --yes` before the next scan.
 
@@ -155,15 +157,16 @@ Registry validation checks username syntax and case-insensitive uniqueness. It d
 
 ## Install from the packaged skill
 
-The release artifact is [`dist/accounts.skill`](../dist/accounts.skill). It is a ZIP-compatible Agent Skill package. An Agent Skills-compatible coding agent can extract or copy its `accounts/` directory into the client's documented local skill directory.
+The release artifact is [`dist/accounts.skill`](../dist/accounts.skill). It is a ZIP-compatible Agent Skill package. For a Claude Code user, install globally from the cloned repository with:
 
-Examples vary by client. Claude Code commonly uses:
-
-```text
-~/.claude/skills/accounts/
+```bash
+mkdir -p ~/.claude/skills
+python -m zipfile -e dist/accounts.skill ~/.claude/skills
 ```
 
-The installer agent must detect the client's supported location instead of assuming every client uses the same directory.
+This creates `~/.claude/skills/accounts/`. A project-local install extracts into `<project-root>/.claude/skills/` instead. Verify `accounts/SKILL.md` exists, then start a fresh Claude Code session because skills may be snapshotted at startup. If `python3` is the command providing Python 3.10+, use it consistently instead of `python`.
+
+In Claude Code, `/permissions` can remember a narrow `Bash(python scripts/run.py *)` rule while the working directory is the installed skill folder. Do not use bypass-permissions mode. If the sandbox cannot reach the GUI clipboard or X, perform authentication in a separate local terminal rather than granting unrelated broad access. See the official Claude Code [skills](https://code.claude.com/docs/en/skills) and [permissions](https://code.claude.com/docs/en/permissions) documentation. Other clients must use their own documented skill and permission locations.
 
 ## Data and credential locations
 

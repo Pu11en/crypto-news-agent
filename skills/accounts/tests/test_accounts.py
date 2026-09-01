@@ -103,6 +103,10 @@ class AccountsSkillTests(unittest.TestCase):
             scan.parse_browser_cookie_table(table),
         )
 
+    def test_browser_cookie_parser_accepts_mixed_export_rows(self):
+        mixed = "auth_token\ttest-token\t.x.com\t/\nct0 test-csrf\n"
+        self.assertEqual("auth_token=test-token; ct0=test-csrf", scan.parse_browser_cookie_table(mixed))
+
     def test_clipboard_auth_clears_clipboard_and_never_prompts(self):
         table = "auth_token\ttest-token\t.x.com\t/\nct0\ttest-csrf\t.x.com\t/\n"
         with tempfile.TemporaryDirectory() as tmp, patch.object(
@@ -217,6 +221,28 @@ class AccountsSkillTests(unittest.TestCase):
             self.assertEqual("", second_posts.read_text())
             self.assertEqual(0, second["new_posts"])
             self.assertEqual(1, second["duplicate_posts"])
+
+    def test_failed_record_serialization_does_not_claim_post(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = scan.app_paths(tmp)
+            scan.secure_runtime(paths)
+            account = {"username": "lookonchain", "tier": "critical", "tags": "whales", "enabled": True}
+            provider = FakeProvider({"lookonchain": [fake_post("149")]})
+            real_dumps = scan.json.dumps
+
+            def fail_record(value, *args, **kwargs):
+                if isinstance(value, dict) and value.get("post_id") == "149":
+                    raise TypeError("injected serialization failure")
+                return real_dumps(value, *args, **kwargs)
+
+            with patch.object(scan.json, "dumps", side_effect=fail_record):
+                first_posts, _, first = asyncio.run(scan.collect(provider, [account], paths, hours=24, limit=5))
+            self.assertEqual("", first_posts.read_text())
+            self.assertEqual(1, len(first["post_processing_errors"]))
+
+            second_posts, _, second = asyncio.run(scan.collect(provider, [account], paths, hours=24, limit=5))
+            self.assertEqual(1, len(second_posts.read_text().splitlines()))
+            self.assertEqual(1, second["new_posts"])
 
     def test_collection_rejects_unallowlisted_author_at_write_boundary(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(scan.metadata, "version", return_value="0.20.1"):
@@ -557,6 +583,34 @@ class AccountsSkillTests(unittest.TestCase):
             self.assertTrue(config["include_replies"])
             self.assertTrue(config["include_reposts"])
 
+    def test_failed_auth_replacement_preserves_existing_session(self):
+        from twscrape import API
+
+        class FailingPool:
+            def __init__(self, real_pool):
+                self.real_pool = real_pool
+
+            async def get_all(self):
+                return await self.real_pool.get_all()
+
+            async def add_account_cookies(self, label, cookie_header):
+                raise RuntimeError("injected replacement failure")
+
+            async def delete_accounts(self, usernames):
+                return await self.real_pool.delete_accounts(usernames)
+
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()):
+            paths = scan.app_paths(tmp)
+            scan.secure_runtime(paths)
+            asyncio.run(scan.auth_add_async(paths, "main", "auth_token=one; ct0=two"))
+            real_api = API(str(paths.session_db))
+            fake_api = SimpleNamespace(pool=FailingPool(real_api.pool))
+            with patch("twscrape.API", return_value=fake_api):
+                with self.assertRaisesRegex(RuntimeError, "injected replacement failure"):
+                    asyncio.run(scan.auth_add_async(paths, "replacement", "auth_token=three; ct0=four"))
+            rows = asyncio.run(real_api.pool.get_all())
+            self.assertEqual(["main"], [row.username for row in rows])
+
     def test_auth_remove_physically_deletes_session_store(self):
         with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()):
             paths = scan.app_paths(tmp)
@@ -655,6 +709,55 @@ class AccountsSkillTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()) as new_shown:
                 scan.show_command(SimpleNamespace(home=tmp, limit=100, scope="new"))
             self.assertEqual(0, len(json.loads(new_shown.getvalue())["posts"]))
+
+    def test_registry_provider_error_publishes_honest_partial_manifest(self):
+        class BrokenSearch:
+            async def search_posts(self, query, limit):
+                raise ConnectionError("injected network failure")
+                yield
+
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = scan.app_paths(tmp)
+            scan.secure_runtime(paths)
+            accounts = [{"username": "alpha", "tier": "high", "tags": [], "enabled": True}]
+            posts, manifest_path, manifest = asyncio.run(scan.collect_registry_search(
+                BrokenSearch(), accounts, paths,
+                hours=24, per_account_limit=5, batch_size=1, max_runtime_seconds=60,
+                include_quotes=True, include_replies=False, include_reposts=False,
+            ))
+            self.assertFalse(manifest["full_registry_pass"])
+            self.assertEqual(0, manifest["queried_accounts"])
+            self.assertIn("provider_error: ConnectionError", manifest["stop_reason"])
+            self.assertTrue(manifest_path.exists())
+            self.assertEqual("", posts.read_text())
+
+    def test_latest_output_paths_cannot_escape_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = scan.app_paths(tmp)
+            scan.secure_runtime(paths)
+            scan.atomic_json(paths.output / "latest.json", {
+                "manifest": str(Path(tmp).parent / "outside-manifest.json"),
+                "combined": str(paths.output / "combined.jsonl"),
+            })
+            with self.assertRaisesRegex(RuntimeError, "outside the Accounts output"):
+                scan.show_command(SimpleNamespace(home=tmp, limit=10, scope="all"))
+
+    def test_corrupt_and_wrong_type_config_fail_cleanly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = scan.app_paths(tmp)
+            scan.secure_runtime(paths)
+            paths.config.write_text("{not-json", encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "configuration is unreadable or corrupt"):
+                scan.load_config(paths)
+            config = scan.default_config(True)
+            config["include_replies"] = "false"
+            scan.atomic_json(paths.config, config)
+            with self.assertRaisesRegex(RuntimeError, "include_replies must be true or false"):
+                scan.load_config(paths)
+            legacy = scan.default_config(True)
+            legacy.pop("accounts_per_scan")
+            scan.atomic_json(paths.config, legacy)
+            self.assertEqual(1, scan.load_config(paths)["accounts_per_scan"])
 
     def test_registry_search_reports_unqueried_accounts_on_rate_limit(self):
         retry = datetime.now(timezone.utc) + timedelta(minutes=10)

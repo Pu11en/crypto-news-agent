@@ -130,9 +130,37 @@ def iso(dt: datetime | None) -> str | None:
 
 def atomic_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as stream:
+            stream.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def read_json_object(path: Path, label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"{label} is unreadable or corrupt: {path}") from exc
+    if not isinstance(value, dict):
+        raise RuntimeError(f"{label} must contain a JSON object: {path}")
+    return value
+
+
+def confined_output_path(paths: Paths, raw: Any, label: str) -> Path:
+    if not isinstance(raw, str) or not raw:
+        raise RuntimeError(f"latest output is missing {label}")
+    root = paths.output.resolve()
+    candidate = Path(raw).expanduser().resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise RuntimeError(f"latest output {label} points outside the Accounts output directory") from exc
+    return candidate
 
 
 def restrict_mode(path: Path, unix_mode: int) -> None:
@@ -224,7 +252,25 @@ def init_command(args: argparse.Namespace) -> int:
 def load_config(paths: Paths) -> dict[str, Any]:
     if not paths.config.exists():
         raise RuntimeError("not initialized; run init first")
-    return json.loads(paths.config.read_text(encoding="utf-8"))
+    stored = read_json_object(paths.config, "configuration")
+    config = default_config(False)
+    config.update(stored)
+    integer_ranges = {
+        "lookback_hours": (1, 24 * 30),
+        "per_account_limit": (1, 200),
+        "accounts_per_scan": (1, 20),
+        "concurrency": (1, 4),
+    }
+    for key, (minimum, maximum) in integer_ranges.items():
+        value = config.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+            raise RuntimeError(f"configuration {key} must be an integer from {minimum} to {maximum}")
+    for key in ("acknowledge_x_terms_risk", "include_quotes", "include_replies", "include_reposts"):
+        if not isinstance(config.get(key), bool):
+            raise RuntimeError(f"configuration {key} must be true or false")
+    if config.get("backend") != "twscrape":
+        raise RuntimeError("configuration backend must be twscrape")
+    return config
 
 
 def configure_command(args: argparse.Namespace) -> int:
@@ -437,9 +483,12 @@ async def auth_add_async(paths: Paths, label: str, cookie_header: str) -> None:
         raise RuntimeError("twscrape missing; install requirements.txt first") from exc
     api = API(str(paths.session_db))
     existing = await api.pool.get_all()
-    if existing:
-        await api.pool.delete_accounts([account.username for account in existing])
+    # Add or update the replacement first. A parse, provider, or SQLite failure must
+    # not destroy the last usable session. twscrape performs this write atomically.
     await api.pool.add_account_cookies(label, cookie_header)
+    obsolete = [account.username for account in existing if account.username != label]
+    if obsolete:
+        await api.pool.delete_accounts(obsolete)
     restrict_mode(paths.session_db, 0o600)
 
 
@@ -462,9 +511,8 @@ def parse_browser_cookie_table(raw: str) -> str:
         columns = line.split("\t")
         if len(columns) >= 2 and columns[0].strip() in {"auth_token", "ct0"}:
             values[columns[0].strip()] = columns[1].strip()
-    if not values:
-        for match in re.finditer(r"(?m)^(auth_token|ct0)\s+([^\s]+)", raw):
-            values[match.group(1)] = match.group(2)
+    for match in re.finditer(r"(?m)^(auth_token|ct0)\s+([^\s]+)", raw):
+        values.setdefault(match.group(1), match.group(2))
     if not values.get("auth_token") or not values.get("ct0"):
         raise RuntimeError("clipboard does not contain copied x.com auth_token and ct0 cookie rows")
     return f"auth_token={values['auth_token']}; ct0={values['ct0']}"
@@ -511,8 +559,9 @@ def clear_clipboard() -> None:
     }.get(system, [["wl-copy", "--clear"], ["xclip", "-selection", "clipboard"]])
     for command in commands:
         if shutil.which(command[0]):
-            subprocess.run(command, input="", text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return
+            result = subprocess.run(command, input="", text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if result.returncode == 0:
+                return
     try:
         import tkinter
         root = tkinter.Tk()
@@ -600,7 +649,8 @@ def history_reset_command(args: argparse.Namespace) -> int:
     paths = app_paths(args.home)
     secure_runtime(paths)
     with scan_process_lock(paths.scan_lock):
-        shutil.rmtree(paths.output, ignore_errors=True)
+        if paths.output.exists():
+            shutil.rmtree(paths.output)
         paths.output.mkdir(parents=True, exist_ok=True, mode=0o700)
         restrict_mode(paths.output, 0o700)
         for candidate in (
@@ -795,6 +845,13 @@ def media_urls(post: Any) -> list[str]:
     return [u for u in urls if u]
 
 
+def twscrape_version() -> str:
+    try:
+        return metadata.version("twscrape")
+    except metadata.PackageNotFoundError:
+        return "unavailable"
+
+
 def normalize_post(post: Any, scan_id: str, fetched_at: datetime) -> dict[str, Any]:
     quoted = getattr(post, "quotedTweet", None)
     reposted = getattr(post, "retweetedTweet", None)
@@ -812,17 +869,20 @@ def normalize_post(post: Any, scan_id: str, fetched_at: datetime) -> dict[str, A
         "media_urls": media_urls(post),
         "external_links": [u for u in links if u],
         "fetched_at": iso(fetched_at),
-        "source_adapter": f"twscrape-{metadata.version('twscrape')}",
+        "source_adapter": f"twscrape-{twscrape_version()}",
         "scan_id": scan_id,
     }
 
 
-def claim_post(db: sqlite3.Connection, record: dict[str, Any]) -> bool:
-    cursor = db.execute(
-        "INSERT OR IGNORE INTO seen_posts(post_id, username, first_seen_at, scan_id) VALUES (?, ?, ?, ?)",
+def post_is_unseen(db: sqlite3.Connection, post_id: str) -> bool:
+    return db.execute("SELECT 1 FROM seen_posts WHERE post_id=?", (post_id,)).fetchone() is None
+
+
+def remember_post(db: sqlite3.Connection, record: dict[str, Any]) -> None:
+    db.execute(
+        "INSERT INTO seen_posts(post_id, username, first_seen_at, scan_id) VALUES (?, ?, ?, ?)",
         (record["post_id"], record["username"], record["fetched_at"], record["scan_id"]),
     )
-    return cursor.rowcount == 1
 
 
 async def collect(
@@ -922,11 +982,15 @@ async def collect(
                         filtered_count += 1
                         continue
                     record = normalize_post(post, scan_id, utc_now())
-                    if claim_post(db, record):
-                        out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    if post_is_unseen(db, record["post_id"]):
+                        serialized = json.dumps(record, ensure_ascii=False) + "\n"
+                        out.write(serialized)
+                        remember_post(db, record)
                         new_count += 1
                     else:
                         duplicate_count += 1
+                except (OSError, sqlite3.Error):
+                    raise
                 except Exception as exc:
                     processing_errors.append({
                         "username": username,
@@ -939,6 +1003,8 @@ async def collect(
                 "ON CONFLICT(username) DO UPDATE SET last_success_at=excluded.last_success_at,last_error=NULL",
                 (username, iso(utc_now())),
             )
+            out.flush()
+            os.fsync(out.fileno())
             db.commit()
 
     manifest = {
@@ -964,7 +1030,7 @@ async def collect(
         },
         "concurrency": effective_concurrency,
         "output": str(posts_path),
-        "source_adapter": f"twscrape-{metadata.version('twscrape')}",
+        "source_adapter": f"twscrape-{twscrape_version()}",
     }
     atomic_json(manifest_path, manifest)
     return posts_path, manifest_path, manifest
@@ -996,6 +1062,8 @@ async def collect_registry_search(
     run_dir.mkdir(parents=True, mode=0o700)
     posts_path = run_dir / "combined.jsonl"
     new_posts_path = run_dir / "new.jsonl"
+    posts_staging = run_dir / "combined.jsonl.tmp"
+    new_posts_staging = run_dir / "new.jsonl.tmp"
     manifest_path = run_dir / "registry-manifest.json"
     allowed = {account["username"].lower() for account in accounts}
     batches = [accounts[index:index + batch_size] for index in range(0, len(accounts), batch_size)]
@@ -1009,8 +1077,8 @@ async def collect_registry_search(
 
     with (
         sqlite3.connect(paths.state_db) as db,
-        posts_path.open("w", encoding="utf-8") as out,
-        new_posts_path.open("w", encoding="utf-8") as new_out,
+        posts_staging.open("w", encoding="utf-8") as out,
+        new_posts_staging.open("w", encoding="utf-8") as new_out,
     ):
         for batch_number, batch in enumerate(batches, 1):
             names = [account["username"] for account in batch]
@@ -1046,6 +1114,10 @@ async def collect_registry_search(
                     stop_reason = f"session_unavailable: {exc}"
                     posts = []
                     break
+                except Exception as exc:
+                    stop_reason = f"provider_error: {type(exc).__name__}: {str(exc)[:180]}"
+                    posts = []
+                    break
             if stop_reason:
                 break
 
@@ -1059,7 +1131,6 @@ async def collect_registry_search(
                     if author not in allowed or author not in {name.lower() for name in names}:
                         totals["rejected_unallowlisted_posts"] += 1
                         continue
-                    seen_authors.add(author)
                     post_date = post.date if post.date.tzinfo else post.date.replace(tzinfo=timezone.utc)
                     excluded_type = (
                         (post.inReplyToTweetId and not include_replies)
@@ -1069,17 +1140,21 @@ async def collect_registry_search(
                     if post_date < cutoff or excluded_type or accepted_per_author.get(author, 0) >= per_account_limit:
                         totals["filtered_posts"] += 1
                         continue
+                    seen_authors.add(author)
                     accepted_per_author[author] = accepted_per_author.get(author, 0) + 1
                     record = normalize_post(post, scan_id, utc_now())
-                    is_new = claim_post(db, record)
+                    is_new = post_is_unseen(db, record["post_id"])
                     record["is_new"] = is_new
                     serialized = json.dumps(record, ensure_ascii=False) + "\n"
                     out.write(serialized)
                     if is_new:
                         new_out.write(serialized)
+                        remember_post(db, record)
                         totals["new_posts"] += 1
                     else:
                         totals["duplicate_posts"] += 1
+                except (OSError, sqlite3.Error):
+                    raise
                 except Exception as exc:
                     processing_errors.append({
                         "post_id": str(getattr(post, "id", "unknown")),
@@ -1092,13 +1167,21 @@ async def collect_registry_search(
                     "ON CONFLICT(username) DO UPDATE SET last_success_at=excluded.last_success_at,last_error=NULL",
                     (name, finished_at),
                 )
-            db.commit()
             batch_reports.append({
                 "batch": batch_number,
                 "accounts": names,
                 "posts_returned": len(posts),
                 "authors_with_results": sorted(seen_authors),
             })
+        # Publish complete JSONL files before committing seen-post claims. A crash
+        # may cause harmless re-emission, but it cannot permanently hide a post.
+        for stream in (out, new_out):
+            stream.flush()
+            os.fsync(stream.fileno())
+            stream.close()
+        os.replace(posts_staging, posts_path)
+        os.replace(new_posts_staging, new_posts_path)
+        db.commit()
 
     unqueried = [account["username"] for account in accounts if account["username"] not in set(queried)]
     full_pass = not unqueried and stop_reason is None
@@ -1315,7 +1398,11 @@ def latest_command(args: argparse.Namespace) -> int:
     latest = paths.output / "latest.json"
     if not latest.exists():
         raise RuntimeError("no completed or partial output exists yet; run scan-all")
-    value = json.loads(latest.read_text(encoding="utf-8"))
+    value = read_json_object(latest, "latest output pointer")
+    for key in ("manifest", "combined"):
+        confined_output_path(paths, value.get(key), key)
+    if value.get("new") is not None:
+        confined_output_path(paths, value.get("new"), "new")
     print(json.dumps(value, indent=2, sort_keys=True))
     return 0
 
@@ -1327,11 +1414,14 @@ def show_command(args: argparse.Namespace) -> int:
     latest_path = paths.output / "latest.json"
     if not latest_path.exists():
         raise RuntimeError("no collected output exists yet; run scan-all")
-    latest = json.loads(latest_path.read_text(encoding="utf-8"))
-    manifest = json.loads(Path(latest["manifest"]).read_text(encoding="utf-8"))
+    latest = read_json_object(latest_path, "latest output pointer")
+    manifest_path = confined_output_path(paths, latest.get("manifest"), "manifest")
+    combined_path = confined_output_path(paths, latest.get("combined"), "combined")
+    new_path = confined_output_path(paths, latest.get("new", latest.get("combined")), "new")
+    manifest = read_json_object(manifest_path, "scan manifest")
     scope = getattr(args, "scope", "all")
     records: list[dict[str, Any]] = []
-    selected_path = Path(latest.get("new", latest["combined"])) if scope == "new" else Path(latest["combined"])
+    selected_path = new_path if scope == "new" else combined_path
     if selected_path.exists():
         with selected_path.open(encoding="utf-8") as source:
             for line in source:
@@ -1557,7 +1647,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         return int(args.func(args))
-    except (RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError, OSError, sqlite3.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

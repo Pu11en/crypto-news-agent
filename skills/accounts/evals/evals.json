@@ -3,38 +3,102 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Set up a completely free crypto X scanner on this computer using the bundled accounts and no paid API. Ask me whatever choices you need, but keep it easy.",
-      "expected_output": "The agent begins the one-question-at-a-time setup interview, keeps credentials out of chat, states the unofficial-interface limitation, and explains that the resulting desk supports both collection and creative use.",
+      "prompt": "Set up a completely free crypto X scanner using the bundled accounts and no paid API. Ask whatever choices you need, but keep it easy.",
+      "expected_output": "The agent runs the one-question setup interview, keeps credentials out of chat, states the unofficial-interface limitation, and explains collection plus creative use.",
       "files": [],
       "assertions": [
         "Asks exactly one multiple-choice question at a time and recommends option A",
         "Does not ask the user to paste cookies or credentials into chat",
-        "Does not falsely promise permanent reliability for unofficial free X collection",
-        "Explains that collected posts can feed story selection, rundowns, summaries, or scripts"
+        "Does not promise permanent reliability or X authorization",
+        "Explains that collected posts can feed selection, rundowns, summaries, or scripts"
       ]
     },
     {
       "id": 2,
-      "prompt": "Add @example to the monitored crypto list, disable @oldaccount, and verify the registry. Do not scrape yet.",
-      "expected_output": "The agent uses registry commands, performs no scrape, describes structural validation honestly, and reports missing records explicitly.",
+      "prompt": "Install Accounts for Claude Code from this checkout. Where exactly should it go, how do you verify it, and when should I test natural-language activation?",
+      "expected_output": "The agent gives the concrete global and supported project-local paths, verifies the installed SKILL.md, and requires a fresh session for activation.",
       "files": [],
       "assertions": [
-        "Uses account registry commands rather than editing scraper internals",
-        "Does not run a live scrape",
-        "Describes registry validation as syntax and uniqueness validation rather than falsely claiming live handle verification",
-        "Reports missing-account errors explicitly"
+        "Names ~/.claude/skills/accounts/ as the Claude Code global install path",
+        "Offers <project-root>/.claude/skills/accounts/ only as a supported project option",
+        "Verifies the installed SKILL.md before setup",
+        "Requires a fresh session because skills may be snapshotted"
       ]
     },
     {
       "id": 3,
-      "prompt": "Scan crypto Twitter, choose the three biggest stories, and write a TikTok script for me.",
-      "expected_output": "The skill performs the collection, chooses the strongest stories from the actual results, and writes the requested script with source links.",
+      "prompt": "My Accounts setup is initialized but the X cookie expired. Recover it without losing my saved results.",
+      "expected_output": "The agent preserves outputs, directs a browser re-login and local DevTools copy, uses clipboard auth-add or separate-terminal hidden prompts, then runs live-auth doctor.",
       "files": [],
       "assertions": [
-        "Runs or loads a real scrape rather than inventing stories",
-        "Selects and explains the strongest collected stories",
-        "Writes the requested TikTok script",
-        "Keeps exact source links attached to the creative output"
+        "Does not rerun init or erase history during recovery",
+        "Requires re-login to x.com before copying the whole DevTools cookie table locally",
+        "Uses auth-add --clipboard and says the user should reply only copied",
+        "Provides separate interactive hidden-prompt fallback for clipboard or headless environments",
+        "Runs doctor --live-auth and reports no credential values",
+        "Never asks for cookie values in chat, screenshots, arguments, env vars, or files"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "The last scan got a 429 with retry_after, then another run said authentication failed. What should Accounts do?",
+      "expected_output": "The agent distinguishes retryable rate limiting from auth failure and gives separate handling.",
+      "files": [],
+      "assertions": [
+        "Treats 429 as retryable and does not retry before the precise retry_after",
+        "Does not describe auth failure, expired session, challenge, or disabled account as a 429",
+        "Recovers or revalidates auth for auth failures and reports unavailable handles explicitly",
+        "Preserves partial manifests and output paths"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Accounts is initialized and doctor --live-auth passes. Run it now, then show me everything saved.",
+      "expected_output": "The agent runs exactly the one-command full-registry scan, retains coverage and outputs, then performs local capped inspection.",
+      "files": [],
+      "assertions": [
+        "Uses scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial",
+        "Does not repeat setup or present a scrape-mode menu",
+        "Reports enabled, queried, unqueried, and full_registry_pass coverage",
+        "Uses show --scope all --limit 100 for local inspection and batches larger requests",
+        "Distinguishes combined current-run records from new-only records"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Open Twitter News, then run Barron for finance and memecoin news.",
+      "expected_output": "The agent shows the launcher menu without scraping, identifies Accounts as available and Barron as planned/unavailable, and does not run Barron.",
+      "files": [],
+      "assertions": [
+        "Opening Twitter News does not contact X",
+        "States Barron is planned and unavailable",
+        "Never simulates or invokes a Barron command",
+        "Does not imply Accounts covers general finance or web trending research"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Scan crypto Twitter, rank the three biggest stories, and write a short TikTok script.",
+      "expected_output": "The agent collects or loads actual monitored-registry records, explains ranking, and writes a source-linked script without inventing posts.",
+      "files": [],
+      "assertions": [
+        "Runs or loads real Accounts results rather than general web search or invented stories",
+        "Ranks and explains the strongest collected stories",
+        "Writes the requested script directly instead of refusing creative transformation",
+        "Keeps exact author and X source links attached to selected claims"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Set up Accounts from my GitHub URL, but I am using a headless coding agent. Then scan all accounts.",
+      "expected_output": "The agent routes GitHub setup through a local clone/download and installed skill directory, uses the headless auth fallback, and reports bounded best-effort coverage.",
+      "files": [],
+      "assertions": [
+        "Explains that a GitHub URL alone does not install a skill or provide credentials",
+        "Installs from the local skills/accounts directory and verifies SKILL.md",
+        "Uses separate-terminal hidden auth-add when clipboard access is unavailable",
+        "Uses bounded scan-all batches and does not claim complete X coverage",
+        "Keeps runtime credentials and outputs outside Git"
       ]
     }
   ]

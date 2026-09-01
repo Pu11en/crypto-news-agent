@@ -12,17 +12,19 @@ Install and validate `accounts` from this repository. It collects raw public X p
 - Never ask for or accept cookies in chat, tool arguments, environment variables, screenshots, or repository files.
 - Never receive cookie values in chat. The easiest safe flow is local clipboard import: the user copies the x.com DevTools cookie table and says only “copied”; run `python scripts/run.py auth-add --clipboard`. The script keeps only `auth_token`/`ct0`, clears the clipboard, and never prints them. If local clipboard access is unavailable, use the separate interactive-terminal fallback.
 - Use one legitimately controlled X session, direct networking, and no proxy rotation, identity rotation, CAPTCHA bypass, purchased cookies, or account farming.
+- Accounts covers the configured monitored X registry, not broad web/trending research. Barron is planned but unavailable; never simulate it.
 - Explain before initialization that twscrape uses X's unofficial interface, can break, and may be enforced against under X's terms. Continue only after explicit acceptance.
 
 ## Client permissions
 
-Before setup, explain that the installed skill and its private runtime live outside the project workspace, so the coding client may request permission. When supported, ask the user once to remember a narrowly scoped allow rule for this skill's `python scripts/run.py` commands, network access, and the shared `twitter-news` user-data directory. Do not trigger a chain of unexplained one-time prompts and do not request unrelated blanket shell access. In DeepSeek Harness, the user may select the session's Full Access preset instead; in Claude Code/Codex, use the client's persistent command/path allow mechanism.
+Before setup, explain that the installed skill and its private runtime live outside the project workspace, so the coding client may request permission. In Claude Code, use `/permissions` for a narrow remembered rule such as `Bash(python scripts/run.py *)` only while the working directory is the installed Accounts folder; never recommend bypass-permissions mode. If the sandbox cannot reach the GUI clipboard or X network, use the separate local-terminal fallback rather than widening unrelated permissions. Other clients should use their persistent command/path allow mechanism. Do not trigger a chain of unexplained one-time prompts or request unrelated blanket shell access. Official references: [Claude Code skills](https://code.claude.com/docs/en/skills) and [permissions](https://code.claude.com/docs/en/permissions).
 
 ## Install
 
-1. Verify Python 3.10+ and local terminal access. On Debian/Ubuntu, install the matching `python3-venv` package if venv creation is unavailable.
-2. Copy `skills/accounts/` into the client's documented local skill directory, preserving all files. If the client snapshots skills at startup, tell the user a restart/new session may be required for natural-language skill activation. Direct script setup can continue now.
-3. From the installed skill directory run:
+1. Verify Python 3.10+ and local terminal access. On Debian/Ubuntu, install the matching `python3-venv` package if venv creation is unavailable. If `python3` is the command providing Python 3.10+, use it consistently instead of `python`.
+2. For Claude Code global installation, run `mkdir -p ~/.claude/skills && python -m zipfile -e dist/accounts.skill ~/.claude/skills` from the cloned repository. This must create `~/.claude/skills/accounts/SKILL.md`. The project-local alternative extracts into `<project-root>/.claude/skills/`. A source install may copy the complete `skills/accounts/` directory. Other clients use their documented skill directory.
+3. Verify the installed `SKILL.md` exists and is the intended Accounts file; report its exact path. If the client snapshots skills at startup, tell the user a restart/new session is required for natural-language activation. Direct script setup can continue now.
+4. From the installed skill directory run:
 
    ```bash
    python scripts/run.py init --acknowledge-x-terms-risk
@@ -48,7 +50,9 @@ python scripts/run.py accounts import /absolute/path/accounts.csv --mode merge
 
 Use `--mode replace` only when the user explicitly chooses a custom-only registry; it must retain at least one enabled account. `accounts sync-bundled` updates from the bundled registry. Never hand-edit private runtime JSON or SQLite.
 
-## Secure cookie handoff
+## Secure cookie handoff and recovery
+
+Use the same flow for first authentication and an expired, challenged, or unusable session. During recovery preserve outputs, registry, configuration, and deduplication state; never run `init` or `history-reset` as an auth repair. A 429 is a separate retryable condition: retain partial output and wait until its exact `retry_after`.
 
 Tell the user:
 
@@ -105,7 +109,7 @@ python scripts/run.py latest
 python scripts/run.py health
 ```
 
-`latest` prints stable paths to the latest combined, new-only, and registry-manifest files. Explain that combined contains all eligible posts from that scrape with `is_new`, while new-only contains only unseen IDs. If asked to show all, use `show --scope all --limit 100` and render post text in fenced code blocks so `$` symbols are not interpreted as math.
+`latest` prints stable paths to the latest combined, new-only, and registry-manifest files. Explain that combined contains all eligible posts from that scrape with `is_new`, while new-only contains only unseen IDs. If asked to show all, use `show --scope all --limit 100` and render post text in fenced code blocks so `$` symbols are not interpreted as math. This display is capped at 100; for an exhaustive larger-feed request, read the `combined.jsonl` path from `latest` and process it in batches while disclosing the bound.
 
 To delete the local X session physically:
 
