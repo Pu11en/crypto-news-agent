@@ -1,7 +1,37 @@
 # crypto-news-agent
 
-A Telegram crypto-news scraper and research agent, with an optional local
-script/video experimentation mode.
+## Standalone zero-cost X collector: Crypto Signal Scan
+
+This repository includes [`crypto-signal-scan`](skills/crypto-signal-scan/), a portable Agent Skill that uses one user-owned X browser session to collect raw public posts from a bundled 77-account crypto registry without a paid API.
+
+**Give this repository to Claude Code, Codex, or another local coding agent and send it:**
+
+```text
+Install and validate the crypto-signal-scan Agent Skill from this repository.
+First read skills/crypto-signal-scan/references/installer-agent-prompt.md and follow it exactly.
+Guide me one question at a time, keep cookie entry in the hidden local auth-add prompt, prove a live scan and duplicate suppression, run the tests, then show me the everyday scan command.
+```
+
+Start here:
+
+- **Complete setup and everyday-use guide:** [`docs/CRYPTO_SIGNAL_SCAN.md`](docs/CRYPTO_SIGNAL_SCAN.md)
+- **Full coding-agent installation prompt:** [`skills/crypto-signal-scan/references/installer-agent-prompt.md`](skills/crypto-signal-scan/references/installer-agent-prompt.md)
+- **Packaged Agent Skill:** [`dist/crypto-signal-scan.skill`](dist/crypto-signal-scan.skill)
+- **Bundled monitored accounts:** [`skills/crypto-signal-scan/assets/accounts.csv`](skills/crypto-signal-scan/assets/accounts.csv)
+
+Daily command after installation:
+
+From the installed `crypto-signal-scan` skill directory:
+
+```bash
+python scripts/run.py scan --hours 24
+```
+
+Normal scans persistently rotate through one account at a time, suppress duplicate post IDs, and print a `retry_after` time when X rate-limits the session. Cookie values must never be pasted into agent chat. The interface is unofficial and cannot be guaranteed permanently stable or authorized by X.
+
+---
+
+The repository also contains the older Telegram crypto-news scraper and research agent, with an optional local script/video experimentation mode.
 
 ## Product modes
 

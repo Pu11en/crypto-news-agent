@@ -64,7 +64,7 @@ Tell the user to paste either a cookie header or the separate `auth_token` and `
    - each `public_url` is an X post URL for that record;
    - no summaries, scores, or generated claims appear.
 9. Run the exact same scan again. If X rate-limits the timeline endpoint, require `retryable: true`, note `retry_after`, and retry no earlier than that time. Confirm already-seen post IDs are reported as duplicates and are not re-emitted as new records.
-10. Run the bundled unit tests with the isolated runtime Python. If any step fails, diagnose the owning layer, make the smallest safe fix, and rerun from `doctor`.
+10. Run `python scripts/run.py test`; this executes the bundled unit tests with the isolated runtime Python. If any step fails, diagnose the owning layer, make the smallest safe fix, and rerun from `doctor`.
 11. Do not run the full 77-account list until the one-account proof passes. A scan without `--account` uses a persistent safe one-account round-robin and advances only after success or a non-retryable account error; repeated runs therefore progress through the bundled registry. Never overlap scan processes. Use direct stable networking, concurrency no greater than 2, and honor manifest retry times. Never source public free proxies.
 
 ## Completion report

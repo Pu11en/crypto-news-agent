@@ -12,6 +12,7 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parent.parent
 REQUIREMENTS = SKILL_DIR / "requirements.txt"
 TARGET = SKILL_DIR / "scripts" / "crypto_signal_scan.py"
+TESTS = SKILL_DIR / "tests"
 
 
 def runtime_root() -> Path:
@@ -43,7 +44,11 @@ def ensure_runtime() -> Path:
 
 def main() -> int:
     python = ensure_runtime()
-    completed = subprocess.run([str(python), str(TARGET), *sys.argv[1:]])
+    if sys.argv[1:] == ["test"]:
+        command = [str(python), "-m", "unittest", "discover", "-s", str(TESTS), "-v"]
+    else:
+        command = [str(python), str(TARGET), *sys.argv[1:]]
+    completed = subprocess.run(command)
     return completed.returncode
 
 

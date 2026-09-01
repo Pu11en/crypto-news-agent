@@ -56,6 +56,7 @@ python scripts/run.py scan --hours 6
 python scripts/run.py scan --account lookonchain --hours 6 --limit 5
 python scripts/run.py scan --all-accounts --hours 6  # explicit; likely to hit X limits
 python scripts/run.py health
+python scripts/run.py test
 ```
 
 Use `python scripts/run.py --help` for complete arguments.
@@ -80,7 +81,8 @@ After setup:
 2. Run a one-account, five-post live scan.
 3. Verify every emitted URL opens the expected public X post and every username is allowlisted.
 4. Run the same scan again and verify duplicate post IDs are not re-emitted.
-5. If any check fails, fix the owning layer and rerun from step 1.
+5. Run `python scripts/run.py test` and require every bundled test to pass.
+6. If any check fails, fix the owning layer and rerun from step 1.
 
 ## Risk acknowledgement
 
