@@ -117,6 +117,10 @@ python scripts/run.py auth-remove --yes
 
 A natural request such as “run Accounts,” “run the Twitter News accounts skill,” or “run the crypto scrape” immediately runs the full 24-hour registry scan. Do not add a scrape-mode menu. Explicit account handles, saved-result requests, creative requests using the latest feed, and the slow legacy cycle override that default directly.
 
+## Toolkit menu test
+
+In a fresh session, “Open Twitter News” must display the available skill list without contacting X. It must show Accounts as available and Barron as planned/not installed. “Run Accounts” must skip that menu and immediately use the 24-hour full-registry default.
+
 ## New-session natural-language activation test
 
 After setup and validation, tell the user to close this agent session, start a new Claude Code/Codex session, and send exactly:

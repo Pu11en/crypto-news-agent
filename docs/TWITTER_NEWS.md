@@ -11,6 +11,8 @@ The raw files remain auditable source material. After collection, the agent can 
 
 All Twitter News skills share one local X session and isolated runtime while retaining separate registries, deduplication state, and outputs.
 
+Saying **“Open Twitter News”** displays the available-skill menu without scraping. Naming a skill directly—such as **“Run Accounts”**—skips the menu and runs it immediately.
+
 ## Fastest installation: give the repository to a coding agent
 
 Clone or open this repository in Claude Code, Codex, or another local coding agent, then send the agent this prompt:

@@ -1,6 +1,6 @@
 ---
 name: accounts
-description: The Accounts skill in the Twitter News toolkit. Scrape the complete monitored crypto account registry for the previous 24 hours, preserve attributable X posts, and use the resulting feed for selection, summaries, rundowns, scripts, or other creative work. Use when the user says run Accounts, run the Twitter News accounts skill, scan all monitored crypto accounts, or work from the latest Accounts scrape.
+description: The Accounts skill and current launcher for the Twitter News toolkit. Display the toolkit's available skills when the user says open Twitter News, use Twitter News, or asks what Twitter News can do. Run Accounts directly when requested to scrape the complete monitored crypto account registry for the previous 24 hours, preserve attributable X posts, or use the resulting feed for selection, summaries, rundowns, scripts, and other creative work.
 compatibility: Python 3.10+ and a user-owned X account session are required. The bundled collector uses the unofficial twscrape interface and may be affected by X changes or terms enforcement.
 ---
 
@@ -37,6 +37,15 @@ python scripts/run.py scan --account lookonchain --hours 24 --limit 5  # targete
 ```
 
 Prefer `auth-add --clipboard`: have the user copy the whole x.com DevTools cookie table locally and say only “copied”; the command retains only `auth_token`/`ct0`, clears the clipboard, and prints nothing sensitive. If clipboard access is unavailable, `auth-add` requires a separate interactive terminal and fails closed otherwise. Never accept cookie values in chat or tool arguments.
+
+## Toolkit launcher
+
+When the user says “open Twitter News,” “use Twitter News,” “start Twitter News,” or asks what the toolkit can do without naming a specific skill, do not scrape yet. Display this short menu and ask which available skill they want:
+
+- **Accounts — available:** scan every enabled account in the bundled crypto registry over the previous 24 hours, then show or creatively use the collected posts.
+- **Barron — planned, not installed yet:** future 12-hour finance and memecoin feed.
+
+Never present a planned skill as runnable. A direct request naming an available skill skips the toolkit menu.
 
 ## Natural-language invocation
 
