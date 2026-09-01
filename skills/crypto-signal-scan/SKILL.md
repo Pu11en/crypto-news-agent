@@ -40,7 +40,7 @@ If initialization is missing, read `references/setup-interview.md` and ask its q
 python scripts/run.py init --acknowledge-x-terms-risk
 python scripts/run.py auth-add
 python scripts/run.py doctor --live-auth
-python scripts/run.py scan --hours 24
+python scripts/run.py scan --hours 24  # scans the next account in the persistent round-robin
 ```
 
 `auth-add` prompts invisibly for either a cookie header or the separate `auth_token` and `ct0` values. Never ask the user to paste those values into chat.
@@ -53,6 +53,8 @@ python scripts/run.py accounts add example_user --tier high --tags bitcoin,news
 python scripts/run.py accounts disable example_user
 python scripts/run.py accounts validate
 python scripts/run.py scan --hours 6
+python scripts/run.py scan --account lookonchain --hours 6 --limit 5
+python scripts/run.py scan --all-accounts --hours 6  # explicit; likely to hit X limits
 python scripts/run.py health
 ```
 
@@ -62,8 +64,10 @@ Use `python scripts/run.py --help` for complete arguments.
 
 - Use the bundled 77-account registry unless the user chooses a custom list.
 - Use one user-owned X session and one stable direct network connection by default.
+- A scan without `--account` uses a persistent one-account round-robin so repeated invocations eventually cover the registry without restarting at the first handle. Use `--all-accounts` only when explicitly requested.
+- Only one scan process may run at a time; overlapping invocations fail explicitly instead of racing the cursor or sharing the session concurrently.
 - Fetch individual user timelines with low concurrency and incremental local deduplication.
-- Respect 429 responses, challenges, and disabled sessions; report partial success rather than hiding gaps.
+- Respect 429 responses, challenges, and disabled sessions. A rate-limited manifest marks the error retryable and reports the earliest known `retry_after`; do not retry before it.
 - Store runtime state under the platform's user data/config directories, never inside the repository.
 - Emit exact source URLs and timestamps.
 

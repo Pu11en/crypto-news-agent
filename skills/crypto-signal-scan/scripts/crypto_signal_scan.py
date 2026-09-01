@@ -15,6 +15,7 @@ import sqlite3
 import stat
 import sys
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from importlib import metadata
@@ -34,6 +35,7 @@ class Paths:
     accounts: Path
     session_db: Path
     state_db: Path
+    scan_lock: Path
     output: Path
 
 
@@ -52,6 +54,7 @@ def app_paths(home: str | None = None) -> Paths:
         accounts=root / "accounts.csv",
         session_db=root / "x-session.sqlite",
         state_db=root / "state.sqlite",
+        scan_lock=root / "scan.lock",
         output=root / "output",
     )
 
@@ -89,6 +92,43 @@ def secure_runtime(paths: Paths) -> None:
         restrict_mode(sensitive, 0o600)
 
 
+@contextmanager
+def scan_process_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+b")
+    restrict_mode(path, 0o600)
+    handle.seek(0)
+    if handle.read(1) == b"":
+        handle.write(b"0")
+        handle.flush()
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        handle.close()
+        raise RuntimeError("another crypto-signal-scan process is already running") from exc
+    try:
+        yield
+    finally:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
 def default_config(acknowledged: bool) -> dict[str, Any]:
     return {
         "acknowledge_x_terms_risk": acknowledged,
@@ -99,6 +139,7 @@ def default_config(acknowledged: bool) -> dict[str, Any]:
         "include_reposts": False,
         "lookback_hours": 24,
         "per_account_limit": 20,
+        "accounts_per_scan": 1,
     }
 
 
@@ -223,9 +264,39 @@ def init_state(path: Path) -> None:
                 last_success_at TEXT,
                 last_error TEXT
             );
+            CREATE TABLE IF NOT EXISTS scan_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             """
         )
     restrict_mode(path, 0o600)
+
+
+def next_account_batch(
+    state_db: Path, accounts: list[dict[str, Any]], count: int
+) -> tuple[list[dict[str, Any]], int]:
+    if not accounts:
+        return [], 0
+    init_state(state_db)
+    with sqlite3.connect(state_db) as db:
+        row = db.execute("SELECT value FROM scan_meta WHERE key='account_cursor'").fetchone()
+    cursor = int(row[0]) if row else 0
+    size = max(1, min(int(count), len(accounts)))
+    selected = [accounts[(cursor + offset) % len(accounts)] for offset in range(size)]
+    return selected, cursor
+
+
+def advance_account_cursor(state_db: Path, cursor: int, amount: int) -> int:
+    next_cursor = cursor + amount
+    with sqlite3.connect(state_db) as db:
+        db.execute(
+            "INSERT INTO scan_meta(key,value) VALUES('account_cursor',?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (str(next_cursor),),
+        )
+        db.commit()
+    return next_cursor
 
 
 async def auth_add_async(paths: Paths, label: str, cookie_header: str) -> None:
@@ -277,7 +348,8 @@ def auth_add_command(args: argparse.Namespace) -> int:
         if not auth_token or not ct0:
             raise RuntimeError("both auth_token and ct0 are required")
         cookie_header = f"auth_token={auth_token}; ct0={ct0}"
-    asyncio.run(auth_add_async(paths, args.label, cookie_header))
+    with scan_process_lock(paths.scan_lock):
+        asyncio.run(auth_add_async(paths, args.label, cookie_header))
     del raw, auth_token, cookie_header, ct0
     print("X session stored locally with owner-only permissions; cookie values were not printed.")
     return 0
@@ -364,26 +436,57 @@ class Provider(Protocol):
     async def user_posts(self, username: str, limit: int) -> AsyncIterator[Any]: ...
 
 
+class ProviderRateLimited(RuntimeError):
+    def __init__(self, queue: str, retry_after: datetime | None):
+        self.queue = queue
+        self.retry_after = retry_after
+        detail = f" until {iso(retry_after)}" if retry_after else ""
+        super().__init__(f"X endpoint {queue} is rate-limited{detail}")
+
+
 class TwscrapeProvider:
     def __init__(self, session_db: Path):
         try:
-            from twscrape import API
+            from twscrape import API, NoAccountError
         except ImportError as exc:
             raise RuntimeError("twscrape missing; install requirements.txt first") from exc
         self.api = API(str(session_db), raise_when_no_account=True, wait_timeout=30)
+        self.no_account_error = NoAccountError
         if session_db.exists():
             restrict_mode(session_db, 0o600)
 
+    async def availability_error(self, queue: str) -> RuntimeError:
+        rows = await self.api.pool.get_all()
+        now = utc_now()
+        retry_times = [
+            account.locks.get(queue)
+            for account in rows
+            if account.active
+            and account.locks.get(queue) is not None
+            and account.locks.get(queue) > now
+        ]
+        if retry_times:
+            return ProviderRateLimited(queue, min(retry_times))
+        return RuntimeError(
+            f"no active X session is available for {queue}; run doctor --live-auth"
+        )
+
     async def user_posts(self, username: str, limit: int) -> AsyncIterator[Any]:
-        user = await self.api.user_by_login(username)
+        try:
+            user = await self.api.user_by_login(username)
+        except self.no_account_error as exc:
+            raise (await self.availability_error("UserByScreenName")) from exc
         if user is None:
             raise RuntimeError("account not found")
         emitted = 0
-        async for post in self.api.user_tweets(user.id, limit=limit):
-            if emitted >= limit:
-                break
-            yield post
-            emitted += 1
+        try:
+            async for post in self.api.user_tweets(user.id, limit=limit):
+                if emitted >= limit:
+                    break
+                yield post
+                emitted += 1
+        except self.no_account_error as exc:
+            raise (await self.availability_error("UserTweets")) from exc
 
 
 def media_urls(post: Any) -> list[str]:
@@ -454,7 +557,7 @@ async def collect(
     posts_path = run_dir / "posts.jsonl"
     manifest_path = run_dir / "scan-manifest.json"
     reached: list[str] = []
-    errors: list[dict[str, str]] = []
+    errors: list[dict[str, Any]] = []
     new_count = duplicate_count = filtered_count = rejected_count = 0
     allowed_usernames = {account["username"].lower() for account in selected}
     init_state(paths.state_db)
@@ -462,7 +565,7 @@ async def collect(
     effective_concurrency = max(1, min(int(concurrency), 4))
     semaphore = asyncio.Semaphore(effective_concurrency)
 
-    async def fetch_one(account: dict[str, Any]) -> tuple[str, list[Any], str | None]:
+    async def fetch_one(account: dict[str, Any]) -> tuple[str, list[Any], dict[str, Any] | None]:
         username = account["username"]
         try:
             posts: list[Any] = []
@@ -470,19 +573,31 @@ async def collect(
                 async for post in provider.user_posts(username, limit):
                     posts.append(post)
             return username, posts, None
+        except ProviderRateLimited as exc:
+            return username, [], {
+                "username": username,
+                "error": str(exc),
+                "retryable": True,
+                "retry_after": iso(exc.retry_after) if exc.retry_after else None,
+            }
         except Exception as exc:
-            return username, [], f"{type(exc).__name__}: {str(exc)[:180]}"
+            return username, [], {
+                "username": username,
+                "error": f"{type(exc).__name__}: {str(exc)[:180]}",
+                "retryable": False,
+                "retry_after": None,
+            }
 
     fetched = await asyncio.gather(*(fetch_one(account) for account in selected))
 
     with sqlite3.connect(paths.state_db) as db, posts_path.open("w", encoding="utf-8") as out:
         for username, posts, error in fetched:
             if error:
-                errors.append({"username": username, "error": error})
+                errors.append(error)
                 db.execute(
                     "INSERT INTO account_health(username,last_success_at,last_error) VALUES(?,NULL,?) "
                     "ON CONFLICT(username) DO UPDATE SET last_error=excluded.last_error",
-                    (username, error),
+                    (username, error["error"]),
                 )
                 db.commit()
                 continue
@@ -540,14 +655,36 @@ async def collect(
     return posts_path, manifest_path, manifest
 
 
+def earliest_retry_after(errors: list[dict[str, Any]]) -> str | None:
+    retry_times = [error["retry_after"] for error in errors if error.get("retry_after")]
+    return min(retry_times) if retry_times else None
+
+
 def scan_command(args: argparse.Namespace) -> int:
     paths = app_paths(args.home)
     secure_runtime(paths)
+    with scan_process_lock(paths.scan_lock):
+        return scan_command_unlocked(args, paths)
+
+
+def scan_command_unlocked(args: argparse.Namespace, paths: Paths) -> int:
     config = load_config(paths)
     if not config.get("acknowledge_x_terms_risk"):
         raise RuntimeError("live scan disabled; rerun init with --acknowledge-x-terms-risk")
     accounts = load_accounts(paths.accounts, enabled_only=True)
     only = {u.lstrip("@").lower() for u in (args.account or [])} or None
+    if only and args.all_accounts:
+        raise RuntimeError("--account and --all-accounts cannot be combined")
+    rotation_cursor: int | None = None
+    if only:
+        selected_accounts = accounts
+    elif args.all_accounts:
+        selected_accounts = accounts
+    else:
+        batch_size = int(config.get("accounts_per_scan", 1))
+        if batch_size != 1:
+            raise RuntimeError("config accounts_per_scan must be 1 for single-session rotation")
+        selected_accounts, rotation_cursor = next_account_batch(paths.state_db, accounts, batch_size)
     hours = args.hours if args.hours is not None else int(config.get("lookback_hours", 24))
     limit = args.limit if args.limit is not None else int(config.get("per_account_limit", 20))
     if hours < 1 or limit < 1:
@@ -558,18 +695,38 @@ def scan_command(args: argparse.Namespace) -> int:
     provider = TwscrapeProvider(paths.session_db)
     posts, manifest_path, manifest = asyncio.run(
         collect(
-            provider, accounts, paths, hours, limit, only,
+            provider, selected_accounts, paths, hours, limit, only,
             concurrency=int(config.get("concurrency", 2)),
             include_quotes=bool(config.get("include_quotes", True)),
             include_replies=bool(config.get("include_replies", False)),
             include_reposts=bool(config.get("include_reposts", False)),
         )
     )
+    if rotation_cursor is not None:
+        nonretryable_failure = any(
+            not error.get("retryable", False) for error in manifest["failed_accounts"]
+        )
+        should_advance = bool(manifest["reached_accounts"]) or nonretryable_failure
+        next_cursor = rotation_cursor
+        if should_advance:
+            next_cursor = advance_account_cursor(
+                paths.state_db, rotation_cursor, len(manifest["requested_accounts"])
+            )
+        manifest["account_rotation"] = {
+            "mode": "round_robin",
+            "cursor_before": rotation_cursor,
+            "cursor_after": next_cursor,
+            "registry_size": len(accounts),
+            "advanced": should_advance,
+        }
+        atomic_json(manifest_path, manifest)
+    retry_after = earliest_retry_after(manifest["failed_accounts"])
     print(json.dumps({
         "posts": str(posts), "manifest": str(manifest_path),
         "new_posts": manifest["new_posts"],
         "reached_accounts": len(manifest["reached_accounts"]),
         "failed_accounts": len(manifest["failed_accounts"]),
+        "retry_after": retry_after,
     }, indent=2))
     return 0 if manifest["reached_accounts"] else 3
 
@@ -625,6 +782,11 @@ def parser() -> argparse.ArgumentParser:
     scan.add_argument("--hours", type=int, help="lookback hours; defaults to local config")
     scan.add_argument("--limit", type=int, help="maximum posts requested per account; defaults to local config")
     scan.add_argument("--account", action="append", help="restrict scan to an enabled account; repeatable")
+    scan.add_argument(
+        "--all-accounts",
+        action="store_true",
+        help="attempt every enabled account in one run instead of safe round-robin batching",
+    )
     scan.set_defaults(func=scan_command)
 
     health = sub.add_parser("health", help="show per-account scan health")

@@ -3,11 +3,14 @@ from __future__ import annotations
 import asyncio
 import csv
 import importlib.util
+import io
 import json
+import sqlite3
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from contextlib import redirect_stdout
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -27,6 +30,35 @@ class FakeProvider:
     async def user_posts(self, username, limit):
         for post in self.posts.get(username, [])[:limit]:
             yield post
+
+
+class PartialFailureProvider(FakeProvider):
+    def __init__(self, posts, failures):
+        super().__init__(posts)
+        self.failures = set(failures)
+
+    async def user_posts(self, username, limit):
+        if username in self.failures:
+            raise RuntimeError("simulated provider failure")
+        for post in self.posts.get(username, [])[:limit]:
+            yield post
+
+
+class ConcurrencyProvider(FakeProvider):
+    def __init__(self, posts):
+        super().__init__(posts)
+        self.active = 0
+        self.max_active = 0
+
+    async def user_posts(self, username, limit):
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        try:
+            await asyncio.sleep(0.01)
+            for post in self.posts.get(username, [])[:limit]:
+                yield post
+        finally:
+            self.active -= 1
 
 
 def fake_post(post_id="100", username="lookonchain", *, reply=False, quote=False, repost=False):
@@ -185,6 +217,251 @@ class CryptoSignalScanTests(unittest.TestCase):
             self.assertEqual(["203"], [record["post_id"] for record in records])
             self.assertEqual(2, manifest["filtered_posts"])
             self.assertEqual(2, manifest["concurrency"])
+
+    def test_scan_process_lock_rejects_overlapping_invocation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_path = Path(tmp) / "scan.lock"
+            with scan.scan_process_lock(lock_path):
+                with self.assertRaisesRegex(RuntimeError, "already running"):
+                    with scan.scan_process_lock(lock_path):
+                        pass
+
+    def test_earliest_retry_time_is_order_independent(self):
+        errors = [
+            {"retry_after": "2026-09-01T00:48:27+00:00"},
+            {"retry_after": None},
+            {"retry_after": "2026-09-01T00:32:50+00:00"},
+        ]
+        self.assertEqual(
+            "2026-09-01T00:32:50+00:00", scan.earliest_retry_after(errors)
+        )
+
+    def test_round_robin_batch_persists_across_restarts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = scan.app_paths(tmp)
+            scan.secure_runtime(paths)
+            accounts = [
+                {"username": "first"},
+                {"username": "second"},
+                {"username": "third"},
+            ]
+            selected, cursor = scan.next_account_batch(paths.state_db, accounts, 1)
+            self.assertEqual(["first"], [item["username"] for item in selected])
+            self.assertEqual(0, cursor)
+            self.assertEqual(1, scan.advance_account_cursor(paths.state_db, cursor, 1))
+
+            restarted_paths = scan.app_paths(tmp)
+            selected, cursor = scan.next_account_batch(restarted_paths.state_db, accounts, 1)
+            self.assertEqual(["second"], [item["username"] for item in selected])
+            self.assertEqual(1, cursor)
+            scan.advance_account_cursor(restarted_paths.state_db, cursor, 2)
+            selected, cursor = scan.next_account_batch(restarted_paths.state_db, accounts, 1)
+            self.assertEqual(["first"], [item["username"] for item in selected])
+            self.assertEqual(3, cursor)
+
+    def test_scan_command_rejects_multi_account_automatic_batch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scan.init_command(SimpleNamespace(home=tmp, force=False, acknowledge_x_terms_risk=True))
+            paths = scan.app_paths(tmp)
+            config = scan.load_config(paths)
+            config["accounts_per_scan"] = 2
+            scan.atomic_json(paths.config, config)
+            args = SimpleNamespace(
+                home=tmp, account=None, all_accounts=False, hours=24, limit=1
+            )
+            with self.assertRaisesRegex(RuntimeError, "must be 1"):
+                scan.scan_command(args)
+
+    def test_scan_command_advances_default_round_robin_after_success(self):
+        async def ready_session(paths):
+            return {"accounts": 1, "active_accounts": 1}
+
+        with tempfile.TemporaryDirectory() as tmp, patch.object(scan.metadata, "version", return_value="0.20.1"):
+            scan.init_command(SimpleNamespace(home=tmp, force=False, acknowledge_x_terms_risk=True))
+            paths = scan.app_paths(tmp)
+            accounts = scan.load_accounts(paths.accounts, enabled_only=True)
+            posts = {
+                account["username"]: [fake_post(str(6000 + index), username=account["username"])]
+                for index, account in enumerate(accounts[:2])
+            }
+            args = SimpleNamespace(
+                home=tmp, account=None, all_accounts=False, hours=24, limit=1
+            )
+            with patch.object(scan, "auth_stats", side_effect=ready_session), patch.object(
+                scan, "TwscrapeProvider", return_value=FakeProvider(posts)
+            ), redirect_stdout(io.StringIO()):
+                self.assertEqual(0, scan.scan_command(args))
+                self.assertEqual(0, scan.scan_command(args))
+            selected, cursor = scan.next_account_batch(paths.state_db, accounts, 1)
+            self.assertEqual(2, cursor)
+            self.assertEqual(accounts[2]["username"], selected[0]["username"])
+
+    def test_scan_command_does_not_advance_rotation_on_rate_limit(self):
+        async def ready_session(paths):
+            return {"accounts": 1, "active_accounts": 1}
+
+        retry_after = datetime.now(timezone.utc) + timedelta(minutes=15)
+
+        class RateLimitedProvider:
+            async def user_posts(self, username, limit):
+                if False:
+                    yield None
+                raise scan.ProviderRateLimited("UserTweets", retry_after)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            scan.init_command(SimpleNamespace(home=tmp, force=False, acknowledge_x_terms_risk=True))
+            paths = scan.app_paths(tmp)
+            accounts = scan.load_accounts(paths.accounts, enabled_only=True)
+            args = SimpleNamespace(
+                home=tmp, account=None, all_accounts=False, hours=24, limit=1
+            )
+            with patch.object(scan, "auth_stats", side_effect=ready_session), patch.object(
+                scan, "TwscrapeProvider", return_value=RateLimitedProvider()
+            ), redirect_stdout(io.StringIO()):
+                self.assertEqual(3, scan.scan_command(args))
+            selected, cursor = scan.next_account_batch(paths.state_db, accounts, 1)
+            self.assertEqual(0, cursor)
+            self.assertEqual(accounts[0]["username"], selected[0]["username"])
+
+    def test_twenty_five_repeated_runs_remain_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(scan.metadata, "version", return_value="0.20.1"):
+            paths = scan.app_paths(tmp)
+            scan.secure_runtime(paths)
+            account = {"username": "lookonchain", "tier": "critical", "tags": "whales", "enabled": True}
+            posts = [fake_post(str(1000 + index)) for index in range(20)]
+            run_dirs = set()
+            for iteration in range(25):
+                posts_path, _, manifest = asyncio.run(
+                    scan.collect(FakeProvider({"lookonchain": posts}), [account], paths, hours=24, limit=20)
+                )
+                run_dirs.add(posts_path.parent)
+                if iteration == 0:
+                    self.assertEqual(20, manifest["new_posts"])
+                    self.assertEqual(20, len(posts_path.read_text().splitlines()))
+                else:
+                    self.assertEqual(0, manifest["new_posts"])
+                    self.assertEqual(20, manifest["duplicate_posts"])
+                    self.assertEqual("", posts_path.read_text())
+            self.assertEqual(25, len(run_dirs))
+            with sqlite3.connect(paths.state_db) as db:
+                self.assertEqual(20, db.execute("SELECT COUNT(*) FROM seen_posts").fetchone()[0])
+
+    def test_restart_preserves_deduplication_and_health(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(scan.metadata, "version", return_value="0.20.1"):
+            first_paths = scan.app_paths(tmp)
+            scan.secure_runtime(first_paths)
+            account = {"username": "lookonchain", "tier": "critical", "tags": "whales", "enabled": True}
+            provider = FakeProvider({"lookonchain": [fake_post("3001")]})
+            asyncio.run(scan.collect(provider, [account], first_paths, hours=24, limit=5))
+
+            restarted_paths = scan.app_paths(tmp)
+            posts_path, _, manifest = asyncio.run(
+                scan.collect(FakeProvider({"lookonchain": [fake_post("3001")]}), [account], restarted_paths, hours=24, limit=5)
+            )
+            self.assertEqual(0, manifest["new_posts"])
+            self.assertEqual(1, manifest["duplicate_posts"])
+            self.assertEqual("", posts_path.read_text())
+            with sqlite3.connect(restarted_paths.state_db) as db:
+                health = db.execute(
+                    "SELECT last_success_at,last_error FROM account_health WHERE username='lookonchain'"
+                ).fetchone()
+            self.assertIsNotNone(health[0])
+            self.assertIsNone(health[1])
+
+    def test_partial_failure_preserves_success_and_error_health(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(scan.metadata, "version", return_value="0.20.1"):
+            paths = scan.app_paths(tmp)
+            scan.secure_runtime(paths)
+            accounts = [
+                {"username": "lookonchain", "tier": "critical", "tags": "whales", "enabled": True},
+                {"username": "whale_alert", "tier": "critical", "tags": "whales", "enabled": True},
+            ]
+            provider = PartialFailureProvider(
+                {"lookonchain": [fake_post("4001")]}, failures={"whale_alert"}
+            )
+            posts_path, _, manifest = asyncio.run(
+                scan.collect(provider, accounts, paths, hours=24, limit=5)
+            )
+            self.assertEqual(["lookonchain"], manifest["reached_accounts"])
+            self.assertEqual("whale_alert", manifest["failed_accounts"][0]["username"])
+            self.assertEqual(1, len(posts_path.read_text().splitlines()))
+            with sqlite3.connect(paths.state_db) as db:
+                failure = db.execute(
+                    "SELECT last_error FROM account_health WHERE username='whale_alert'"
+                ).fetchone()[0]
+            self.assertIn("simulated provider failure", failure)
+
+    def test_adapter_distinguishes_rate_lock_from_unusable_session(self):
+        class Pool:
+            def __init__(self, rows):
+                self.rows = rows
+
+            async def get_all(self):
+                return self.rows
+
+        provider = object.__new__(scan.TwscrapeProvider)
+        retry_after = datetime.now(timezone.utc) + timedelta(minutes=15)
+        provider.api = SimpleNamespace(
+            pool=Pool([SimpleNamespace(active=True, locks={"UserTweets": retry_after})])
+        )
+        error = asyncio.run(provider.availability_error("UserTweets"))
+        self.assertIsInstance(error, scan.ProviderRateLimited)
+        self.assertEqual(retry_after, error.retry_after)
+
+        for unusable_row in (
+            SimpleNamespace(active=False, locks={}),
+            SimpleNamespace(
+                active=True,
+                locks={"UserTweets": datetime.now(timezone.utc) - timedelta(seconds=1)},
+            ),
+        ):
+            provider.api = SimpleNamespace(pool=Pool([unusable_row]))
+            error = asyncio.run(provider.availability_error("UserTweets"))
+            self.assertIs(type(error), RuntimeError)
+            self.assertNotIsInstance(error, scan.ProviderRateLimited)
+            self.assertIn("doctor --live-auth", str(error))
+
+    def test_rate_limit_failure_reports_retry_time(self):
+        retry_after = datetime.now(timezone.utc) + timedelta(minutes=15)
+
+        class RateLimitedProvider:
+            async def user_posts(self, username, limit):
+                if False:
+                    yield None
+                raise scan.ProviderRateLimited("UserTweets", retry_after)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = scan.app_paths(tmp)
+            scan.secure_runtime(paths)
+            account = {"username": "lookonchain", "tier": "critical", "tags": "whales", "enabled": True}
+            _, _, manifest = asyncio.run(
+                scan.collect(RateLimitedProvider(), [account], paths, hours=24, limit=5)
+            )
+            error = manifest["failed_accounts"][0]
+            self.assertEqual("lookonchain", error["username"])
+            self.assertTrue(error["retryable"])
+            self.assertEqual(scan.iso(retry_after), error["retry_after"])
+            self.assertIn("UserTweets", error["error"])
+
+    def test_concurrency_never_exceeds_configured_bound(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(scan.metadata, "version", return_value="0.20.1"):
+            paths = scan.app_paths(tmp)
+            scan.secure_runtime(paths)
+            accounts = [
+                {"username": f"source_{index}", "tier": "medium", "tags": "test", "enabled": True}
+                for index in range(8)
+            ]
+            posts = {
+                account["username"]: [fake_post(str(5000 + index), username=account["username"])]
+                for index, account in enumerate(accounts)
+            }
+            provider = ConcurrencyProvider(posts)
+            _, _, manifest = asyncio.run(
+                scan.collect(provider, accounts, paths, hours=24, limit=1, concurrency=2)
+            )
+            self.assertEqual(2, provider.max_active)
+            self.assertEqual(2, manifest["concurrency"])
+            self.assertEqual(8, len(manifest["reached_accounts"]))
 
 
 if __name__ == "__main__":
