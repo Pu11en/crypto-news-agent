@@ -1,6 +1,6 @@
 username,tier,tags,enabled
 colin_alex,critical,news,true
-metrika_co,critical,on-chain|analytics,true
+metrika_co,critical,on-chain|analytics,false
 zhusu,critical,glassnode|news,true
 santimentfeed,critical,data|alerts,true
 lookonchain,critical,whales|on-chain|transfers,true

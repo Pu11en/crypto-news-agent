@@ -1,85 +1,126 @@
 # Portable installer-agent prompt
 
-Copy the prompt below into Claude Code, Codex, or another coding agent running on the computer where the user wants Crypto Signal Scan installed.
+Give the prompt below to Claude Code, Codex, or another coding agent running locally on the recipient's computer.
 
 ---
 
-You are installing and validating `crypto-signal-scan`, a local Agent Skill that collects raw public posts from a curated list of crypto accounts using one user-owned X browser session and no paid API.
+Install and validate `crypto-signal-scan` from this repository. It collects raw public X posts from a bundled crypto account registry using exactly one user-owned X session and no paid API.
 
-## Outcome
+## Non-negotiable safety
 
-Install the skill, configure it through a plain-language multiple-choice interview, securely register the user's own X cookies locally, and prove collection with a one-account live scan followed by a duplicate-suppression scan. Do not build story ranking, summaries, scripts, videos, trading advice, proxy rotation, CAPTCHA bypass, or account farming.
+- Read `skills/crypto-signal-scan/SKILL.md`, `references/setup-interview.md`, and `references/output-schema.md` before acting.
+- Never ask for or accept cookies in chat, tool arguments, environment variables, screenshots, or repository files.
+- Cookie entry requires a real interactive terminal. Do not run `auth-add` through a noninteractive agent shell. Give the user the exact installed skill path, ask them to open a separate terminal, `cd` there, run `python scripts/run.py auth-add`, and return only after it finishes.
+- Use one legitimately controlled X session, direct networking, and no proxy rotation, identity rotation, CAPTCHA bypass, purchased cookies, or account farming.
+- Explain before initialization that twscrape uses X's unofficial interface, can break, and may be enforced against under X's terms. Continue only after explicit acceptance.
 
-## Source
+## Install
 
-Use the `skills/crypto-signal-scan/` folder from:
-
-`https://github.com/Pu11en/crypto-news-agent`
-
-Audit every skill file before running it. The expected Python dependency is pinned in `requirements.txt`; do not add unrelated packages.
-
-## Installation location
-
-Detect the active agent's supported skill directory instead of guessing. For Claude Code, prefer `~/.claude/skills/crypto-signal-scan/`. For another Agent Skills-compatible client, use that client's documented local skill directory. Copy only the `crypto-signal-scan` folder, preserving `SKILL.md`, `scripts/`, `references/`, `assets/`, `tests/`, and `evals/`.
-
-Runtime credentials and data must stay outside the repository and skill folder. Let the bundled runner use the operating system's user data directory. Ensure runtime directories are owner-only and session databases are mode `0600` on Unix-like systems.
-
-## Interview behavior
-
-Read `references/setup-interview.md`. Ask exactly one question at a time, recommend `A.`, use consecutive choices through at most `G.`, and skip decisions already answered. Do not ask the user to choose libraries or internal architecture.
-
-Never ask the user to paste X cookies, passwords, or tokens into chat. When configuration is settled, run the local invisible prompt:
-
-```bash
-python scripts/run.py auth-add
-```
-
-Tell the user to paste either a cookie header or the separate `auth_token` and `ct0` values only into those hidden terminal prompts. Do not echo, inspect, log, summarize, or transmit the values.
-
-## Required steps
-
-1. Verify Python 3.10 or newer and enough disk space for a small isolated environment.
-2. Install/copy the skill into the detected skill directory.
-3. From the installed skill directory, run:
+1. Verify Python 3.10+ and local terminal access. On Debian/Ubuntu, install the matching `python3-venv` package if venv creation is unavailable.
+2. Copy `skills/crypto-signal-scan/` into the client's documented local skill directory, preserving all files. If the client snapshots skills at startup, tell the user a restart/new session may be required for natural-language skill activation. Direct script setup can continue now.
+3. From the installed skill directory run:
 
    ```bash
    python scripts/run.py init --acknowledge-x-terms-risk
-   python scripts/run.py accounts validate
    python scripts/run.py doctor
    ```
 
-4. Explain that free collection uses X's unofficial web interface, may break when X changes it, and may be enforced against under X's terms. The acknowledgement is informed consent, not authorization from X.
-5. Guide the user to log into `x.com` in their ordinary browser. In Chromium/Chrome/Edge, use Developer Tools → Application → Cookies → `https://x.com`; in Firefox, use Developer Tools → Storage → Cookies. Have them copy the values named `auth_token` and `ct0`, then enter them only through `python scripts/run.py auth-add`. Never place cookie values in shell arguments, chat, project files, screenshots, or clipboard logs.
-6. Run `python scripts/run.py doctor --live-auth` again. Require exactly one active local X session, a successful authenticated lookup, 77 enabled bundled accounts unless the user changed them, acknowledged risk, and platform-appropriate private runtime/session permissions.
-7. Choose one enabled account for a minimal proof and run:
+   Plain `doctor` is pre-auth readiness and must return `ready: true`, `readiness_stage: pre-auth`. It is expected to report zero sessions at this point.
+
+## Interview and configuration
+
+Ask exactly one multiple-choice question at a time using `references/setup-interview.md`. Apply answers only through supported commands:
+
+```bash
+python scripts/run.py configure --lookback-hours 24 --per-account-limit 20 --post-types quotes
+python scripts/run.py accounts validate
+```
+
+For additional accounts, create a CSV with headers `username,tier,tags,enabled`, validate it, then merge it:
+
+```bash
+python scripts/run.py accounts import /absolute/path/accounts.csv --mode merge
+```
+
+Use `--mode replace` only when the user explicitly chooses a custom-only registry; it must retain at least one enabled account. `accounts sync-bundled` updates from the bundled registry. Never hand-edit private runtime JSON or SQLite.
+
+## Secure cookie handoff
+
+Tell the user:
+
+1. Sign in to `https://x.com` in Chrome/Chromium/Edge or Firefox.
+2. Chrome-family: Developer Tools → Application → Cookies → `https://x.com`. Firefox: Developer Tools → Storage → Cookies.
+3. Find `auth_token` and `ct0`.
+4. Open a separate local terminal and run, from the installed skill directory:
 
    ```bash
-   python scripts/run.py scan --account lookonchain --hours 6 --limit 5
+   python scripts/run.py auth-add
    ```
 
-8. Open the emitted manifest and JSONL without exposing credentials. Verify:
-   - at least one account was reached;
-   - each record has the required fields from `references/output-schema.md`;
-   - each username is allowlisted;
-   - each `public_url` is an X post URL for that record;
-   - no summaries, scores, or generated claims appear.
-9. Run the exact same scan again. If X rate-limits the timeline endpoint, require `retryable: true`, note `retry_after`, and retry no earlier than that time. Confirm already-seen post IDs are reported as duplicates and are not re-emitted as new records.
-10. Run `python scripts/run.py test`; this executes the bundled unit tests with the isolated runtime Python. If any step fails, diagnose the owning layer, make the smallest safe fix, and rerun from `doctor`.
-11. Do not run the full 77-account list until the one-account proof passes. A scan without `--account` uses a persistent safe one-account round-robin and advances only after success or a non-retryable account error; repeated runs therefore progress through the bundled registry. Never overlap scan processes. Use direct stable networking, concurrency no greater than 2, and honor manifest retry times. Never source public free proxies.
+5. Enter the two values only in the hidden prompts. Do not send them back to the agent.
+
+Then run:
+
+```bash
+python scripts/run.py doctor --live-auth
+```
+
+Require `ready: true`, `readiness_stage: live-auth`, exactly one active session, and `live_auth_verified: true`.
+
+## Live proof
+
+Run a minimal enabled-account scan. Start with:
+
+```bash
+python scripts/run.py scan --account lookonchain --hours 24 --limit 20
+```
+
+If it reaches the account but emits zero eligible posts, select another enabled active account or widen the lookback/limit. Do not treat zero eligible posts as authentication failure. Once at least one record is emitted, repeat the exact scan after any reported `retry_after`; verify existing post IDs are counted as duplicates and not re-emitted.
+
+Run all tests:
+
+```bash
+python scripts/run.py test
+```
+
+## Everyday operation and outputs
+
+Use the bounded resumable cycle rather than one account per day:
+
+```bash
+python scripts/run.py cycle --hours 24 --limit 20 --max-runtime-seconds 43200
+```
+
+The cycle uses one account at a time, waits until known endpoint retry times when they fit inside the runtime budget, persists progress, and stops safely on session loss. It does not bypass limits and does not promise complete X coverage. If interrupted or deadline-limited, run it again later; it resumes from the persisted cursor.
+
+Show the user:
+
+```bash
+python scripts/run.py latest
+python scripts/run.py health
+```
+
+`latest` prints stable paths to `combined.jsonl` (new raw posts from the latest cycle) and `cycle-manifest.json` (coverage, rounds, failures, retry/deadline status). Open both for the user and explain that JSONL is one JSON object per post with exact X URL, author, text, and timestamps.
+
+To delete the local X session physically:
+
+```bash
+python scripts/run.py auth-remove --yes
+```
 
 ## Completion report
 
-Return only:
-- installed skill path;
-- runtime data path;
-- dependency version;
-- enabled account count;
-- authentication readiness without credential values;
-- first scan reached/new/error counts and output paths;
+Return:
+- installed skill and runtime paths;
+- pre-auth and live-auth doctor results without credential values;
+- configured defaults and enabled-account count;
+- custom account import result;
+- live scan reached/new/error counts;
 - duplicate-suppression result;
-- tests run and pass/fail totals;
-- any remaining reliability or X-terms warning.
+- test pass total;
+- cycle/latest commands and output paths;
+- any remaining retry time, unavailable handles, client-restart requirement, and unofficial-X warning.
 
-Do not claim the scraper is guaranteed permanently reliable. Completion means it worked live on this computer at this time, the local safety controls passed, and failures are explicit.
+Do not claim permanent reliability, complete post coverage, or X authorization.
 
 ---

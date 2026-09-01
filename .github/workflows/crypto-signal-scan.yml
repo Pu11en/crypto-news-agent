@@ -1,0 +1,46 @@
+name: crypto-signal-scan
+
+on:
+  push:
+    paths:
+      - 'skills/crypto-signal-scan/**'
+      - 'dist/crypto-signal-scan.skill'
+      - '.github/workflows/crypto-signal-scan.yml'
+  pull_request:
+    paths:
+      - 'skills/crypto-signal-scan/**'
+      - 'dist/crypto-signal-scan.skill'
+      - '.github/workflows/crypto-signal-scan.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: '3.10'
+          - os: ubuntu-latest
+            python: '3.12'
+          - os: windows-latest
+            python: '3.12'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run isolated skill tests
+        shell: bash
+        env:
+          CRYPTO_SIGNAL_HOME: ${{ runner.temp }}/crypto-signal-scan
+        run: python skills/crypto-signal-scan/scripts/run.py test
+      - name: Verify pre-auth doctor
+        shell: bash
+        env:
+          CRYPTO_SIGNAL_HOME: ${{ runner.temp }}/crypto-signal-doctor
+        run: |
+          python skills/crypto-signal-scan/scripts/run.py init --acknowledge-x-terms-risk
+          python skills/crypto-signal-scan/scripts/run.py doctor

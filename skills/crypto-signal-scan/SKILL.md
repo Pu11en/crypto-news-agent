@@ -43,20 +43,21 @@ python scripts/run.py doctor --live-auth
 python scripts/run.py scan --hours 24  # scans the next account in the persistent round-robin
 ```
 
-`auth-add` prompts invisibly for either a cookie header or the separate `auth_token` and `ct0` values. Never ask the user to paste those values into chat.
+`auth-add` requires a real interactive local terminal and fails closed otherwise. Have the user open a separate terminal and enter cookies there; never ask them to paste values into chat or an agent tool.
 
 ## Common operations
 
 ```bash
+python scripts/run.py configure --lookback-hours 24 --per-account-limit 20 --post-types quotes
 python scripts/run.py accounts list
-python scripts/run.py accounts add example_user --tier high --tags bitcoin,news
-python scripts/run.py accounts disable example_user
+python scripts/run.py accounts import /path/accounts.csv --mode merge
 python scripts/run.py accounts validate
-python scripts/run.py scan --hours 6
-python scripts/run.py scan --account lookonchain --hours 6 --limit 5
-python scripts/run.py scan --all-accounts --hours 6  # explicit; likely to hit X limits
+python scripts/run.py scan --account lookonchain --hours 24 --limit 20
+python scripts/run.py cycle --hours 24 --limit 20 --max-runtime-seconds 43200
+python scripts/run.py latest
 python scripts/run.py health
 python scripts/run.py test
+python scripts/run.py auth-remove --yes
 ```
 
 Use `python scripts/run.py --help` for complete arguments.
@@ -65,7 +66,7 @@ Use `python scripts/run.py --help` for complete arguments.
 
 - Use the bundled 77-account registry unless the user chooses a custom list.
 - Use one user-owned X session and one stable direct network connection by default.
-- A scan without `--account` uses a persistent one-account round-robin so repeated invocations eventually cover the registry without restarting at the first handle. Use `--all-accounts` only when explicitly requested.
+- Use `cycle` for everyday operation: it sequentially advances the persistent round-robin, honors known retry times inside a bounded runtime, publishes combined output, and resumes later. A single `scan` remains a targeted/manual operation.
 - Only one scan process may run at a time; overlapping invocations fail explicitly instead of racing the cursor or sharing the session concurrently.
 - Fetch individual user timelines with low concurrency and incremental local deduplication.
 - Respect 429 responses, challenges, and disabled sessions. A rate-limited manifest marks the error retryable and reports the earliest known `retry_after`; do not retry before it.

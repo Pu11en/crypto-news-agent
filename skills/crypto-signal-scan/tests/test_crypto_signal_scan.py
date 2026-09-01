@@ -82,7 +82,8 @@ class CryptoSignalScanTests(unittest.TestCase):
         rows = scan.load_accounts(scan.DEFAULT_ACCOUNTS)
         self.assertEqual(77, len(rows))
         self.assertEqual(77, len({r["username"].lower() for r in rows}))
-        self.assertTrue(all(r["enabled"] for r in rows))
+        self.assertEqual(76, sum(r["enabled"] for r in rows))
+        self.assertFalse(next(r for r in rows if r["username"] == "metrika_co")["enabled"])
 
     def test_cookie_parser_keeps_only_required_values(self):
         value = scan.parse_cookie_header("other=nope; auth_token=abc; ct0=xyz; extra=drop")
@@ -93,6 +94,8 @@ class CryptoSignalScanTests(unittest.TestCase):
     def test_auth_add_accepts_named_cookie_values_without_double_prefix(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(
             scan.getpass, "getpass", side_effect=["auth_token=abc", "ct0=xyz"]
+        ), patch.object(scan.sys.stdin, "isatty", return_value=True), patch.object(
+            scan.sys.stderr, "isatty", return_value=True
         ):
             scan.init_command(SimpleNamespace(home=tmp, force=False, acknowledge_x_terms_risk=True))
             result = scan.auth_add_command(SimpleNamespace(home=tmp, label="main"))
@@ -417,7 +420,7 @@ class CryptoSignalScanTests(unittest.TestCase):
         ):
             provider.api = SimpleNamespace(pool=Pool([unusable_row]))
             error = asyncio.run(provider.availability_error("UserTweets"))
-            self.assertIs(type(error), RuntimeError)
+            self.assertIsInstance(error, scan.ProviderSessionUnavailable)
             self.assertNotIsInstance(error, scan.ProviderRateLimited)
             self.assertIn("doctor --live-auth", str(error))
 
@@ -462,6 +465,100 @@ class CryptoSignalScanTests(unittest.TestCase):
             self.assertEqual(2, provider.max_active)
             self.assertEqual(2, manifest["concurrency"])
             self.assertEqual(8, len(manifest["reached_accounts"]))
+
+    def test_non_tty_auth_fails_before_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scan.init_command(SimpleNamespace(home=tmp, force=False, acknowledge_x_terms_risk=True))
+            with patch.object(scan.sys.stdin, "isatty", return_value=False), patch.object(
+                scan.getpass, "getpass"
+            ) as prompt:
+                with self.assertRaisesRegex(RuntimeError, "interactive local terminal"):
+                    scan.auth_add_command(SimpleNamespace(home=tmp, label="main"))
+            prompt.assert_not_called()
+
+    def test_pre_auth_doctor_is_ready_without_creating_session_db(self):
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()) as output:
+            scan.init_command(SimpleNamespace(home=tmp, force=False, acknowledge_x_terms_risk=True))
+            paths = scan.app_paths(tmp)
+            self.assertFalse(paths.session_db.exists())
+            self.assertEqual(0, scan.doctor_command(SimpleNamespace(home=tmp, live_auth=False)))
+            self.assertFalse(paths.session_db.exists())
+            report = json.loads(output.getvalue().split("Initialized", 1)[-1].split("\n", 1)[-1])
+            self.assertEqual("pre-auth", report["readiness_stage"])
+            self.assertTrue(report["ready"])
+
+    def test_configure_updates_validated_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()):
+            scan.init_command(SimpleNamespace(home=tmp, force=False, acknowledge_x_terms_risk=True))
+            args = SimpleNamespace(
+                home=tmp, lookback_hours=12, per_account_limit=50, post_types="all"
+            )
+            self.assertEqual(0, scan.configure_command(args))
+            config = scan.load_config(scan.app_paths(tmp))
+            self.assertEqual(12, config["lookback_hours"])
+            self.assertEqual(50, config["per_account_limit"])
+            self.assertTrue(config["include_replies"])
+            self.assertTrue(config["include_reposts"])
+
+    def test_auth_remove_physically_deletes_session_store(self):
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()):
+            paths = scan.app_paths(tmp)
+            scan.secure_runtime(paths)
+            asyncio.run(scan.auth_add_async(paths, "main", "auth_token=one; ct0=two"))
+            self.assertTrue(paths.session_db.exists())
+            self.assertEqual(0, scan.auth_remove_command(SimpleNamespace(home=tmp, yes=True)))
+            self.assertFalse(paths.session_db.exists())
+
+    def test_cycle_advances_accounts_and_publishes_latest(self):
+        async def ready_session(paths):
+            return {"accounts": 1, "active_accounts": 1}
+
+        with tempfile.TemporaryDirectory() as tmp, patch.object(scan.metadata, "version", return_value="0.20.1"):
+            scan.init_command(SimpleNamespace(home=tmp, force=False, acknowledge_x_terms_risk=True))
+            paths = scan.app_paths(tmp)
+            accounts = scan.load_accounts(paths.accounts, enabled_only=True)
+            posts = {
+                account["username"]: [fake_post(str(7000 + index), username=account["username"])]
+                for index, account in enumerate(accounts[:2])
+            }
+            args = SimpleNamespace(
+                home=tmp, hours=24, limit=1, max_runtime_seconds=60, max_accounts=2
+            )
+            with patch.object(scan, "auth_stats", side_effect=ready_session), patch.object(
+                scan, "TwscrapeProvider", return_value=FakeProvider(posts)
+            ), redirect_stdout(io.StringIO()):
+                self.assertEqual(0, scan.cycle_command(args))
+            latest = json.loads((paths.output / "latest.json").read_text())
+            combined = Path(latest["combined"]).read_text().splitlines()
+            self.assertEqual(2, len(combined))
+            _, cursor = scan.next_account_batch(paths.state_db, accounts, 1)
+            self.assertEqual(2, cursor)
+
+    def test_cycle_holds_cursor_when_retry_exceeds_deadline(self):
+        async def ready_session(paths):
+            return {"accounts": 1, "active_accounts": 1}
+
+        retry_after = datetime.now(timezone.utc) + timedelta(minutes=15)
+
+        class Limited:
+            async def user_posts(self, username, limit):
+                if False:
+                    yield None
+                raise scan.ProviderRateLimited("UserTweets", retry_after)
+
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()):
+            scan.init_command(SimpleNamespace(home=tmp, force=False, acknowledge_x_terms_risk=True))
+            paths = scan.app_paths(tmp)
+            args = SimpleNamespace(
+                home=tmp, hours=24, limit=1, max_runtime_seconds=1, max_accounts=1
+            )
+            with patch.object(scan, "auth_stats", side_effect=ready_session), patch.object(
+                scan, "TwscrapeProvider", return_value=Limited()
+            ):
+                self.assertEqual(3, scan.cycle_command(args))
+            accounts = scan.load_accounts(paths.accounts, enabled_only=True)
+            _, cursor = scan.next_account_batch(paths.state_db, accounts, 1)
+            self.assertEqual(0, cursor)
 
 
 if __name__ == "__main__":

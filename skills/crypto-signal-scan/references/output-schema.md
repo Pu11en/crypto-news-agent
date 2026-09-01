@@ -27,7 +27,7 @@ IDs are strings. Timestamps are UTC ISO 8601. Missing values are `null`; collect
 
 ## `scan-manifest.json`
 
-Contains `scan_id`, start/end timestamps, requested/reached/failed accounts, new/duplicate/filtered post counts, lookback hours, backend version, output path, and structured per-account errors. Each failed-account object has string `username` and `error`, boolean `retryable`, and nullable UTC ISO 8601 string `retry_after`. Only a confirmed active endpoint lock is retryable; an unusable session directs the operator to `doctor --live-auth` instead.
+Contains `scan_id`, start/end timestamps, requested/reached/failed accounts, new/duplicate/filtered post counts, lookback hours, backend version, output path, and structured per-account errors. Each failed-account object has string `username` and `error`, booleans `retryable` and `fatal`, and nullable UTC ISO 8601 string `retry_after`. Only a confirmed active endpoint lock is retryable; an unusable session is fatal and directs the operator to `doctor --live-auth`. Manifests also report `fetched_posts`, `post_processing_errors`, `bounded_by_request_limit`, and a best-effort `coverage_scope`; reaching an account is not a claim of complete timeline coverage.
 
 Automatic scans also contain `account_rotation`:
 
@@ -46,3 +46,7 @@ The cursor advances after success or a non-retryable account error. It remains f
 ## Local SQLite
 
 SQLite stores seen post IDs, per-account last-success/error health, and the persistent account-rotation cursor. The JSON manifest stores scan-level metadata, including `account_rotation` for automatic round-robin runs. SQLite is state, not an export, and contains no post ranking or generated interpretation.
+
+## Cycle output
+
+`cycle` writes immutable `output/cycles/<id>/combined.jsonl` and `cycle-manifest.json`, then atomically updates `output/latest.json`. The cycle manifest records status, stop reason, cursor movement, per-account round manifests, bounded coverage wording, and totals. `latest` prints the stable pointer; deadline-limited cycles are valid partial outputs and resume from the retained cursor.

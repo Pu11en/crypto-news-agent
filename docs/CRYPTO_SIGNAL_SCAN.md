@@ -50,12 +50,13 @@ The first `run.py` invocation creates an isolated Python environment and install
 4. In Firefox, open **Storage → Cookies → https://x.com**.
 5. Find the cookies named `auth_token` and `ct0`.
 6. Do not paste them into Claude, Codex, ChatGPT, GitHub, screenshots, shell arguments, or project files.
-7. Run the hidden local prompt:
+7. Open a separate local terminal, `cd` to the installed skill directory, and run:
 
    ```bash
    python scripts/run.py auth-add
    ```
 
+   Do not run this through a noninteractive agent shell; it deliberately fails closed there.
 8. Paste the `auth_token` value into the first hidden prompt and the `ct0` value into the second hidden prompt. Press Enter after each. Hidden input does not appear on screen.
 
 If cookies are ever pasted into chat or committed to a repository, treat that session as exposed: log out of X to invalidate it, log back in, and enter the newly generated values only through `auth-add`.
@@ -92,19 +93,17 @@ python scripts/run.py test
 From the installed skill directory, run:
 
 ```bash
-python scripts/run.py scan --hours 24
+python scripts/run.py cycle --hours 24 --limit 20 --max-runtime-seconds 43200
 ```
 
-That is the normal daily-use command. It:
+This bounded daily cycle processes accounts sequentially, waits for known endpoint retry times when they fit inside the runtime budget, persists its cursor, and resumes on the next invocation. It publishes a combined raw JSONL file and explicit partial/full-pass manifest without claiming complete X coverage. Keep the terminal/process running; do not overlap cycles.
 
-1. selects the next enabled account in a persistent round-robin;
-2. collects recent public posts;
-3. writes only newly observed post IDs;
-4. advances to the next account after success or a non-retryable missing-account error;
-5. keeps the same account selected when X rate-limits the timeline endpoint;
-6. prints `retry_after` when the user must wait before trying again.
+Inspect the latest output with:
 
-Run the command repeatedly over time to progress through the bundled registry. It intentionally handles one account per normal invocation because one X session cannot safely query all 77 timelines at once without encountering endpoint limits. Do not overlap scan processes.
+```bash
+python scripts/run.py latest
+python scripts/run.py health
+```
 
 Useful daily commands:
 
@@ -131,11 +130,14 @@ Avoid `--all-accounts` for ordinary use. It is explicit because X is likely to r
 ## Manage monitored accounts
 
 ```bash
+python scripts/run.py configure --lookback-hours 24 --per-account-limit 20 --post-types quotes
 python scripts/run.py accounts add example_user --tier high --tags bitcoin,news
+python scripts/run.py accounts import /absolute/path/accounts.csv --mode merge
 python scripts/run.py accounts disable example_user
 python scripts/run.py accounts enable example_user
 python scripts/run.py accounts remove example_user
 python scripts/run.py accounts validate
+python scripts/run.py auth-remove --yes
 ```
 
 Registry validation checks username syntax and case-insensitive uniqueness. It does not promise that every handle currently exists on X. Live scans report unavailable handles explicitly and move to the next account.
