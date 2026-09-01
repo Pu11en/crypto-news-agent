@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import aclosing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from importlib import metadata
@@ -670,6 +670,18 @@ class TwscrapeProvider:
             f"no active X session is available for {queue}; run doctor --live-auth"
         )
 
+    async def search_posts(self, query: str, limit: int) -> AsyncIterator[Any]:
+        emitted = 0
+        try:
+            async with aclosing(self.api.search(query, limit=limit)) as source:
+                async for post in source:
+                    if emitted >= limit:
+                        break
+                    yield post
+                    emitted += 1
+        except self.no_account_error as exc:
+            raise (await self.availability_error("SearchTimeline")) from exc
+
     async def user_posts(self, username: str, limit: int) -> AsyncIterator[Any]:
         try:
             user = await self.api.user_by_login(username)
@@ -679,11 +691,12 @@ class TwscrapeProvider:
             raise RuntimeError("account not found")
         emitted = 0
         try:
-            async for post in self.api.user_tweets(user.id, limit=limit):
-                if emitted >= limit:
-                    break
-                yield post
-                emitted += 1
+            async with aclosing(self.api.user_tweets(user.id, limit=limit)) as source:
+                async for post in source:
+                    if emitted >= limit:
+                        break
+                    yield post
+                    emitted += 1
         except self.no_account_error as exc:
             raise (await self.availability_error("UserTweets")) from exc
 
@@ -880,6 +893,197 @@ async def collect(
 def earliest_retry_after(errors: list[dict[str, Any]]) -> str | None:
     retry_times = [error["retry_after"] for error in errors if error.get("retry_after")]
     return min(retry_times) if retry_times else None
+
+
+async def collect_registry_search(
+    provider: TwscrapeProvider,
+    accounts: list[dict[str, Any]],
+    paths: Paths,
+    *,
+    hours: int,
+    per_account_limit: int,
+    batch_size: int,
+    max_runtime_seconds: int,
+    include_quotes: bool,
+    include_replies: bool,
+    include_reposts: bool,
+) -> tuple[Path, Path, dict[str, Any]]:
+    scan_id = str(uuid.uuid4())
+    started = utc_now()
+    cutoff = started - timedelta(hours=hours)
+    deadline = time.monotonic() + max_runtime_seconds
+    run_dir = paths.output / "registry-scans" / f"{started.strftime('%Y%m%dT%H%M%SZ')}-{scan_id[:8]}"
+    run_dir.mkdir(parents=True, mode=0o700)
+    posts_path = run_dir / "combined.jsonl"
+    manifest_path = run_dir / "registry-manifest.json"
+    allowed = {account["username"].lower() for account in accounts}
+    batches = [accounts[index:index + batch_size] for index in range(0, len(accounts), batch_size)]
+    queried: list[str] = []
+    batch_reports: list[dict[str, Any]] = []
+    processing_errors: list[dict[str, str]] = []
+    totals = {"fetched_posts": 0, "new_posts": 0, "duplicate_posts": 0, "filtered_posts": 0, "rejected_unallowlisted_posts": 0}
+    stop_reason: str | None = None
+    pending_retry_after: str | None = None
+    init_state(paths.state_db)
+
+    with sqlite3.connect(paths.state_db) as db, posts_path.open("w", encoding="utf-8") as out:
+        for batch_number, batch in enumerate(batches, 1):
+            names = [account["username"] for account in batch]
+            if time.monotonic() >= deadline:
+                stop_reason = "max_runtime"
+                break
+            query = "(" + " OR ".join(f"from:{name}" for name in names) + ")"
+            if not include_replies:
+                query += " -filter:replies"
+            if not include_reposts:
+                query += " -filter:nativeretweets"
+            # Keep each batch to one search page so the whole registry can fit within
+            # a single endpoint window. Retention remains capped per author below.
+            fetch_limit = max(20, per_account_limit)
+            while True:
+                try:
+                    posts = [post async for post in provider.search_posts(query, fetch_limit)]
+                    pending_retry_after = None
+                    break
+                except ProviderRateLimited as exc:
+                    pending_retry_after = iso(exc.retry_after) if exc.retry_after else None
+                    if not exc.retry_after:
+                        stop_reason = "retry_after_unknown"
+                        posts = []
+                        break
+                    wait_seconds = max(1.0, (exc.retry_after - utc_now()).total_seconds() + 1.0)
+                    if time.monotonic() + wait_seconds > deadline:
+                        stop_reason = "retry_after_beyond_deadline"
+                        posts = []
+                        break
+                    await asyncio.sleep(wait_seconds)
+                except ProviderSessionUnavailable as exc:
+                    stop_reason = f"session_unavailable: {exc}"
+                    posts = []
+                    break
+            if stop_reason:
+                break
+
+            queried.extend(names)
+            seen_authors: set[str] = set()
+            accepted_per_author: dict[str, int] = {}
+            for post in posts:
+                totals["fetched_posts"] += 1
+                try:
+                    author = str(getattr(post.user, "username", "")).lower()
+                    if author not in allowed or author not in {name.lower() for name in names}:
+                        totals["rejected_unallowlisted_posts"] += 1
+                        continue
+                    seen_authors.add(author)
+                    post_date = post.date if post.date.tzinfo else post.date.replace(tzinfo=timezone.utc)
+                    excluded_type = (
+                        (post.inReplyToTweetId and not include_replies)
+                        or (getattr(post, "retweetedTweet", None) and not include_reposts)
+                        or (getattr(post, "quotedTweet", None) and not include_quotes)
+                    )
+                    if post_date < cutoff or excluded_type or accepted_per_author.get(author, 0) >= per_account_limit:
+                        totals["filtered_posts"] += 1
+                        continue
+                    accepted_per_author[author] = accepted_per_author.get(author, 0) + 1
+                    record = normalize_post(post, scan_id, utc_now())
+                    if claim_post(db, record):
+                        out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                        totals["new_posts"] += 1
+                    else:
+                        totals["duplicate_posts"] += 1
+                except Exception as exc:
+                    processing_errors.append({
+                        "post_id": str(getattr(post, "id", "unknown")),
+                        "error": f"{type(exc).__name__}: {str(exc)[:180]}",
+                    })
+            finished_at = iso(utc_now())
+            for name in names:
+                db.execute(
+                    "INSERT INTO account_health(username,last_success_at,last_error) VALUES(?,?,NULL) "
+                    "ON CONFLICT(username) DO UPDATE SET last_success_at=excluded.last_success_at,last_error=NULL",
+                    (name, finished_at),
+                )
+            db.commit()
+            batch_reports.append({
+                "batch": batch_number,
+                "accounts": names,
+                "posts_returned": len(posts),
+                "authors_with_results": sorted(seen_authors),
+            })
+
+    unqueried = [account["username"] for account in accounts if account["username"] not in set(queried)]
+    full_pass = not unqueried and stop_reason is None
+    manifest = {
+        "schema_version": 1,
+        "scan_id": scan_id,
+        "mode": "batched_registry_search",
+        "started_at": iso(started),
+        "finished_at": iso(utc_now()),
+        "lookback_hours": hours,
+        "per_account_limit": per_account_limit,
+        "enabled_accounts": len(accounts),
+        "queried_accounts": len(queried),
+        "queried_usernames": queried,
+        "unqueried_usernames": unqueried,
+        "full_registry_pass": full_pass,
+        "status": "pass_finished" if full_pass else "partial",
+        "stop_reason": stop_reason,
+        "pending_retry_after": pending_retry_after,
+        "batches": batch_reports,
+        "post_processing_errors": processing_errors,
+        "coverage_scope": "all enabled accounts were included in successful X search queries" if full_pass else "partial enabled-registry query coverage",
+        "completeness_note": "Search results are bounded and best-effort; full_registry_pass does not claim every X post was returned.",
+        "combined_output": str(posts_path),
+        **totals,
+    }
+    atomic_json(manifest_path, manifest)
+    atomic_json(paths.output / "latest.json", {
+        "scan_id": scan_id,
+        "mode": "batched_registry_search",
+        "manifest": str(manifest_path),
+        "combined": str(posts_path),
+        "published_at": iso(utc_now()),
+    })
+    return posts_path, manifest_path, manifest
+
+
+def scan_all_command(args: argparse.Namespace) -> int:
+    paths = app_paths(args.home)
+    secure_runtime(paths)
+    with scan_process_lock(paths.scan_lock):
+        config = load_config(paths)
+        if not config.get("acknowledge_x_terms_risk"):
+            raise RuntimeError("live scan disabled; rerun init with --acknowledge-x-terms-risk")
+        accounts = load_accounts(paths.accounts, enabled_only=True)
+        stats = asyncio.run(auth_stats(paths))
+        if stats["accounts"] != 1 or stats["active_accounts"] != 1:
+            raise RuntimeError("exactly one active local X session is required; run auth-add")
+        hours = args.hours if args.hours is not None else int(config.get("lookback_hours", 24))
+        limit = args.limit if args.limit is not None else int(config.get("per_account_limit", 20))
+        if hours < 1 or limit < 1 or args.batch_size < 1 or args.batch_size > 15:
+            raise RuntimeError("hours/limit must be positive and batch size must be 1-15")
+        posts, manifest_path, manifest = asyncio.run(collect_registry_search(
+            TwscrapeProvider(paths.session_db), accounts, paths,
+            hours=hours,
+            per_account_limit=limit,
+            batch_size=args.batch_size,
+            max_runtime_seconds=args.max_runtime_seconds,
+            include_quotes=bool(config.get("include_quotes", True)),
+            include_replies=bool(config.get("include_replies", False)),
+            include_reposts=bool(config.get("include_reposts", False)),
+        ))
+    print(json.dumps({
+        "status": manifest["status"],
+        "enabled_accounts": manifest["enabled_accounts"],
+        "queried_accounts": manifest["queried_accounts"],
+        "unqueried_accounts": len(manifest["unqueried_usernames"]),
+        "new_posts": manifest["new_posts"],
+        "duplicate_posts": manifest["duplicate_posts"],
+        "retry_after": manifest["pending_retry_after"],
+        "posts": str(posts),
+        "manifest": str(manifest_path),
+    }, indent=2))
+    return 0 if manifest["full_registry_pass"] else 3
 
 
 def cycle_command(args: argparse.Namespace) -> int:
@@ -1172,7 +1376,14 @@ def parser() -> argparse.ArgumentParser:
     )
     scan.set_defaults(func=scan_command)
 
-    cycle = sub.add_parser("cycle", help="run a bounded resumable account cycle")
+    scan_all = sub.add_parser("scan-all", help="query the entire enabled registry in safe search batches")
+    scan_all.add_argument("--hours", type=int, help="lookback hours; defaults to local config")
+    scan_all.add_argument("--limit", type=int, help="maximum qualifying posts retained per account")
+    scan_all.add_argument("--batch-size", type=int, default=3, help="accounts per one-page X search query (1-15)")
+    scan_all.add_argument("--max-runtime-seconds", type=int, default=900)
+    scan_all.set_defaults(func=scan_all_command)
+
+    cycle = sub.add_parser("cycle", help="run legacy per-timeline resumable account cycle")
     cycle.add_argument("--hours", type=int, help="lookback hours; defaults to local config")
     cycle.add_argument("--limit", type=int, help="maximum posts requested per account")
     cycle.add_argument("--max-runtime-seconds", type=int, default=3600)

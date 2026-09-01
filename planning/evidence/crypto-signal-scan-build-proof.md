@@ -18,7 +18,7 @@
 
 ## Automated evidence
 
-- Thirty unit tests pass, including non-TTY auth refusal, clipboard-table parsing/clearing, staged pre-auth doctor, configuration, physical session removal, bounded cycle publication, and retry-deadline cursor retention, plus 25 idempotent repeated scans, restart persistence, partial failure, bounded concurrency, persistent round-robin rotation at both helper and CLI levels, no cursor advance during rate limits, retry-vs-unusable-session classification, earliest retry selection, overlapping-process rejection, single-account batch enforcement, registry validation, one-session replacement, exact provider-side limits, write-boundary allowlisting, and post-type policy.
+- Thirty-two unit tests pass, including full-registry batched-search coverage/partial-manifest behavior and non-TTY auth refusal, clipboard-table parsing/clearing, staged pre-auth doctor, configuration, physical session removal, bounded cycle publication, and retry-deadline cursor retention, plus 25 idempotent repeated scans, restart persistence, partial failure, bounded concurrency, persistent round-robin rotation at both helper and CLI levels, no cursor advance during rate limits, retry-vs-unusable-session classification, earliest retry selection, overlapping-process rejection, single-account batch enforcement, registry validation, one-session replacement, exact provider-side limits, write-boundary allowlisting, and post-type policy.
 - Python files compile successfully.
 - A separate 100-cycle deterministic full-registry soak reached 7,700 account iterations with zero failures: 77 records were new on cycle one and 7,623 duplicates were suppressed on the next 99 cycles.
 - Fresh runner bootstrap installed the pinned dependency and initialized 77 accounts.
@@ -26,7 +26,7 @@
 - Skill validation passed through the skill-creator packager.
 - Gitleaks found no secrets in the skill.
 - `pip-audit` found no known vulnerabilities in the resolved pinned requirements.
-- During live proof, `doctor --live-auth` reported 77 accounts, acknowledged risk, mode `0700`, session DB mode `0600`, exactly one active X session, and a successful authenticated lookup.
+- During live proof, `doctor --live-auth` reported one active verified X session with private Unix modes. The corrected `scan-all` completed 26 one-page search batches covering all 76 enabled accounts, left zero unqueried accounts, emitted 12 new records, and suppressed 75 duplicates.
 - Independent re-review found no remaining blocker after the repeatability changes and separately confirmed adapter classification, single-account rotation, cross-process locking, minimum retry selection, manifest schema, one-session enforcement, and package/source parity.
 - Three prompt evaluations scored 100% with the skill versus 66.7% without it. The skill advantage came from the one-question setup contract and strict collection-only routing; account-management behavior was non-discriminating. Static review: `skills/crypto-signal-scan-workspace/iteration-1/review.html`.
 

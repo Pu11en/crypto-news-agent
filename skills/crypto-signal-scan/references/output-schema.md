@@ -47,6 +47,10 @@ The cursor advances after success or a non-retryable account error. It remains f
 
 SQLite stores seen post IDs, per-account last-success/error health, and the persistent account-rotation cursor. The JSON manifest stores scan-level metadata, including `account_rotation` for automatic round-robin runs. SQLite is state, not an export, and contains no post ranking or generated interpretation.
 
-## Cycle output
+## Full-registry output
+
+`scan-all` writes `output/registry-scans/<id>/combined.jsonl` and `registry-manifest.json`, then atomically updates `output/latest.json`. Its manifest reports `enabled_accounts`, `queried_accounts`, `queried_usernames`, `unqueried_usernames`, `full_registry_pass`, per-batch results, retry time, and bounded best-effort completeness wording. `full_registry_pass` means every enabled handle appeared in a successful X search query; it does not claim X returned every post.
+
+## Legacy cycle output
 
 `cycle` writes immutable `output/cycles/<id>/combined.jsonl` and `cycle-manifest.json`, then atomically updates `output/latest.json`. The cycle manifest records status, stop reason, cursor movement, per-account round manifests, bounded coverage wording, and totals. `latest` prints the stable pointer; deadline-limited cycles are valid partial outputs and resume from the retained cursor.

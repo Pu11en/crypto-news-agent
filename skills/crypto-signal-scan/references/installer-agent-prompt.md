@@ -86,13 +86,13 @@ python scripts/run.py test
 
 ## Everyday operation and outputs
 
-Use the bounded resumable cycle rather than one account per day:
+Use the full-registry command for normal operation:
 
 ```bash
-python scripts/run.py cycle --hours 24 --limit 20 --max-runtime-seconds 43200
+python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900
 ```
 
-The cycle uses one account at a time, waits until known endpoint retry times when they fit inside the runtime budget, persists progress, and stops safely on session loss. It does not bypass limits and does not promise complete X coverage. If interrupted or deadline-limited, run it again later; it resumes from the persisted cursor.
+It includes every enabled account in safe batched X search queries and writes one combined output. The manifest must report enabled, queried, and unqueried accounts plus `full_registry_pass`. Search is bounded/best-effort and does not promise X returned every post. Keep `cycle` only as an explicitly selected slow legacy timeline mode.
 
 Show the user:
 
@@ -101,7 +101,7 @@ python scripts/run.py latest
 python scripts/run.py health
 ```
 
-`latest` prints stable paths to `combined.jsonl` (new raw posts from the latest cycle) and `cycle-manifest.json` (coverage, rounds, failures, retry/deadline status). Open both for the user and explain that JSONL is one JSON object per post with exact X URL, author, text, and timestamps.
+`latest` prints stable paths to the latest combined JSONL and registry manifest. Open both for the user and explain that JSONL is one JSON object per post with exact X URL, author, text, and timestamps.
 
 To delete the local X session physically:
 
@@ -109,13 +109,17 @@ To delete the local X session physically:
 python scripts/run.py auth-remove --yes
 ```
 
+## Deterministic scrape choice
+
+For a vague scrape request, the skill must ask one question before contacting X: A. full registry (recommended), B. specific accounts, C. show saved results, or D. slow legacy timeline cycle. Explicit “all monitored accounts” selects A without another question.
+
 ## New-session natural-language activation test
 
 After setup and validation, tell the user to close this agent session, start a new Claude Code/Codex session, and send exactly:
 
 > Scan my monitored crypto accounts now and show me the new raw posts with author, time, text, and X link.
 
-The new agent should automatically load this skill, run live-auth doctor, execute the short interactive cycle defined in `SKILL.md`, and display up to 10 raw posts plus the manifest/output paths. If the client does not auto-load it, verify the client skill directory and restart once; direct script operation remains available.
+The new agent should automatically load this skill, run live-auth doctor, recognize that “monitored accounts” means the full-registry mode, execute `scan-all`, report registry coverage, and display up to 10 raw posts plus the manifest/output paths. If the client does not auto-load it, verify the client skill directory and restart once; direct script operation remains available.
 
 ## Completion report
 

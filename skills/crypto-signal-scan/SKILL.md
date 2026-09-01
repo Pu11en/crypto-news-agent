@@ -40,20 +40,25 @@ If initialization is missing, read `references/setup-interview.md` and ask its q
 python scripts/run.py init --acknowledge-x-terms-risk
 python scripts/run.py auth-add
 python scripts/run.py doctor --live-auth
-python scripts/run.py scan --hours 24  # scans the next account in the persistent round-robin
+python scripts/run.py scan --account lookonchain --hours 24 --limit 5  # targeted setup proof
 ```
 
 Prefer `auth-add --clipboard`: have the user copy the whole x.com DevTools cookie table locally and say only “copied”; the command retains only `auth_token`/`ct0`, clears the clipboard, and prints nothing sensitive. If clipboard access is unavailable, `auth-add` requires a separate interactive terminal and fails closed otherwise. Never accept cookie values in chat or tool arguments.
 
 ## Natural-language invocation
 
-When the user says “scan my crypto accounts,” “refresh my crypto feed,” “show me the latest crypto posts,” or similar:
+For a vague request such as “run the crypto scrape,” do not guess or contact X yet. Ask exactly one multiple-choice question:
 
-1. Run `python scripts/run.py doctor --live-auth`; if it is not ready, repair setup without requesting cookies in chat.
-2. For an interactive result, run `python scripts/run.py cycle --hours 24 --limit 20 --max-runtime-seconds 120 --max-accounts 2`.
-3. Run `python scripts/run.py latest`, read its `combined.jsonl` and manifest, and show the user the status plus up to 10 newly emitted posts verbatim as author, UTC time, text, and exact X URL. Do not summarize or rank them.
-4. If no new posts were emitted, clearly distinguish duplicates, no eligible posts, rate limiting, and authentication failure. Give the exact `retry_after` when present.
-5. Only launch the long 12-hour cycle when the user explicitly asks for the full daily registry run and understands the process must stay running.
+- **A. Full registry scan (recommended)** — attempt every enabled monitored account in batched searches and produce one combined output.
+- **B. Specific-account scan** — ask for one or more handles and scan only those.
+- **C. Show saved results** — display the latest collected posts without contacting X.
+- **D. Slow timeline cycle** — legacy one-account-at-a-time timeline collection; use only when explicitly chosen.
+
+If the user explicitly says “all monitored accounts,” “full registry,” names specific handles, or asks for saved results, skip the menu and use the stated mode. Before any live mode run `doctor --live-auth` and repair setup if needed without requesting cookies in chat.
+
+For A run `python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900`. For B run targeted `scan --account ...`. For C run `latest` and read its files. For D run `cycle` with an explicit runtime budget.
+
+After collection, read the combined JSONL and manifest and show status plus up to 10 newly emitted posts verbatim as author, UTC time, text, and exact X URL. Do not summarize or rank. Always report enabled, queried, and unqueried account counts; distinguish duplicates, no eligible posts, rate limiting, and authentication failure; give exact `retry_after` when present.
 
 ## Common operations
 
@@ -62,8 +67,9 @@ python scripts/run.py configure --lookback-hours 24 --per-account-limit 20 --pos
 python scripts/run.py accounts list
 python scripts/run.py accounts import /path/accounts.csv --mode merge
 python scripts/run.py accounts validate
+python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900
 python scripts/run.py scan --account lookonchain --hours 24 --limit 20
-python scripts/run.py cycle --hours 24 --limit 20 --max-runtime-seconds 43200
+python scripts/run.py cycle --hours 24 --limit 20 --max-runtime-seconds 43200  # legacy slow mode
 python scripts/run.py latest
 python scripts/run.py health
 python scripts/run.py test
@@ -76,9 +82,9 @@ Use `python scripts/run.py --help` for complete arguments.
 
 - Use the bundled 77-account registry unless the user chooses a custom list.
 - Use one user-owned X session and one stable direct network connection by default.
-- Use `cycle` for everyday operation: it sequentially advances the persistent round-robin, honors known retry times inside a bounded runtime, publishes combined output, and resumes later. A single `scan` remains a targeted/manual operation.
-- Only one scan process may run at a time; overlapping invocations fail explicitly instead of racing the cursor or sharing the session concurrently.
-- Fetch individual user timelines with low concurrency and incremental local deduplication.
+- Use `scan-all` for full-registry operation: it groups every enabled account into bounded X search queries, writes one combined output, and reports full versus partial registry query coverage. A full pass does not claim X returned every post.
+- `scan` is targeted/manual; `cycle` is the explicitly selected legacy timeline-by-timeline mode.
+- Only one scan process may run at a time; overlapping invocations fail explicitly instead of sharing the session concurrently.
 - Respect 429 responses, challenges, and disabled sessions. A rate-limited manifest marks the error retryable and reports the earliest known `retry_after`; do not retry before it.
 - Store runtime state under the platform's user data/config directories, never inside the repository.
 - Emit exact source URLs and timestamps.

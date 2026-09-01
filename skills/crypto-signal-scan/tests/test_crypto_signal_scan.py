@@ -561,6 +561,60 @@ class CryptoSignalScanTests(unittest.TestCase):
             _, cursor = scan.next_account_batch(paths.state_db, accounts, 1)
             self.assertEqual(2, cursor)
 
+    def test_registry_search_queries_every_enabled_account_in_batches(self):
+        class SearchProvider:
+            async def search_posts(self, query, limit):
+                for index, username in enumerate(("alpha", "beta", "gamma")):
+                    if f"from:{username}" in query:
+                        yield fake_post(str(8100 + index), username=username)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = scan.app_paths(tmp)
+            scan.secure_runtime(paths)
+            accounts = [
+                {"username": name, "tier": "high", "tags": [], "enabled": True}
+                for name in ("alpha", "beta", "gamma")
+            ]
+            posts, manifest_path, manifest = asyncio.run(scan.collect_registry_search(
+                SearchProvider(), accounts, paths,
+                hours=24, per_account_limit=5, batch_size=2, max_runtime_seconds=60,
+                include_quotes=True, include_replies=False, include_reposts=False,
+            ))
+            self.assertTrue(manifest["full_registry_pass"])
+            self.assertEqual(3, manifest["queried_accounts"])
+            self.assertEqual(2, len(manifest["batches"]))
+            self.assertEqual(3, len(posts.read_text().splitlines()))
+            self.assertTrue(manifest_path.exists())
+            self.assertTrue((paths.output / "latest.json").exists())
+
+    def test_registry_search_reports_unqueried_accounts_on_rate_limit(self):
+        retry = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+        class LimitedSearch:
+            calls = 0
+            async def search_posts(self, query, limit):
+                self.calls += 1
+                if self.calls > 1:
+                    raise scan.ProviderRateLimited("SearchTimeline", retry)
+                yield fake_post("8200", username="alpha")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = scan.app_paths(tmp)
+            scan.secure_runtime(paths)
+            accounts = [
+                {"username": name, "tier": "high", "tags": [], "enabled": True}
+                for name in ("alpha", "beta", "gamma")
+            ]
+            _, _, manifest = asyncio.run(scan.collect_registry_search(
+                LimitedSearch(), accounts, paths,
+                hours=24, per_account_limit=5, batch_size=2, max_runtime_seconds=1,
+                include_quotes=True, include_replies=False, include_reposts=False,
+            ))
+            self.assertFalse(manifest["full_registry_pass"])
+            self.assertEqual(2, manifest["queried_accounts"])
+            self.assertEqual(["gamma"], manifest["unqueried_usernames"])
+            self.assertEqual("retry_after_beyond_deadline", manifest["stop_reason"])
+
     def test_cycle_holds_cursor_when_retry_exceeds_deadline(self):
         async def ready_session(paths):
             return {"accounts": 1, "active_accounts": 1}

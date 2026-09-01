@@ -93,10 +93,10 @@ python scripts/run.py test
 From the installed skill directory, run:
 
 ```bash
-python scripts/run.py cycle --hours 24 --limit 20 --max-runtime-seconds 43200
+python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900
 ```
 
-This bounded daily cycle processes accounts sequentially, waits for known endpoint retry times when they fit inside the runtime budget, persists its cursor, and resumes on the next invocation. It publishes a combined raw JSONL file and explicit partial/full-pass manifest without claiming complete X coverage. Keep the terminal/process running; do not overlap cycles.
+This full-registry scan includes every enabled account in bounded batched X search queries and publishes one combined raw JSONL plus a registry manifest. The manifest explicitly reports enabled, queried, and unqueried accounts and never equates a successful query pass with complete X coverage. Do not overlap scans.
 
 Inspect the latest output with:
 
