@@ -5,10 +5,13 @@
 *.key
 *.pem
 
-# Database
+# Local databases
 *.db
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 
 # Python
 __pycache__/
@@ -17,42 +20,15 @@ __pycache__/
 .venv/
 venv/
 
-# Local data
-data/
-output/
-tmp/
+# Local runtime data
+/data/
+/output/
+/tmp/
+.coverage
 
-# IDE
+# Editors and operating systems
 .vscode/
 .idea/
 *.swp
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Railway
-.railway/
-
-# ZCode local artifacts
-.zcode/
-
-# Hermes local workspace files
-.hermes/
-
-# Legacy project files retained only in this local checkout
-/.dockerignore
-/.env.example
-/Dockerfile
-/accounts.txt
-/railway.toml
-/requirements.txt
-/docs/PRODUCTION_AGENT.md
-/scripts/
-/src/
-/tests/
-/planning/
-/assets/
-/full-crypto-scrape*.json
-/full-crypto-scrape*.jsonl
-/.coverage
