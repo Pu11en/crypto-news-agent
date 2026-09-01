@@ -49,13 +49,23 @@ def rewrite_legacy_output_paths(profile_root: Path, legacy_roots: list[Path]) ->
     if not output.exists():
         return
     replacements = [(str(path), str(profile_root)) for path in legacy_roots]
+
+    def rewrite(value: Any) -> Any:
+        if isinstance(value, str):
+            for old, new in replacements:
+                value = value.replace(old, new)
+            return value
+        if isinstance(value, list):
+            return [rewrite(item) for item in value]
+        if isinstance(value, dict):
+            return {key: rewrite(item) for key, item in value.items()}
+        return value
+
     for path in output.rglob("*.json"):
-        text = path.read_text(encoding="utf-8")
-        updated = text
-        for old, new in replacements:
-            updated = updated.replace(old, new)
-        if updated != text:
-            path.write_text(updated, encoding="utf-8")
+        original = read_json_object(path, "legacy output metadata")
+        updated = rewrite(original)
+        if updated != original:
+            atomic_json(path, updated)
 
 
 def migrate_legacy_roots(toolkit_root: Path, profile_root: Path, legacy_roots: list[Path]) -> tuple[Path, Path]:
@@ -141,6 +151,19 @@ def atomic_json(path: Path, value: dict[str, Any]) -> None:
         tmp.unlink(missing_ok=True)
 
 
+@contextmanager
+def sqlite_connection(path: Path):
+    db = sqlite3.connect(path)
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def read_json_object(path: Path, label: str) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -182,12 +205,12 @@ def secure_runtime(paths: Paths) -> None:
 @contextmanager
 def scan_process_lock(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle = path.open("a+b")
+    if not path.exists() or path.stat().st_size == 0:
+        with path.open("ab") as initializer:
+            initializer.write(b"0")
+            initializer.flush()
+    handle = path.open("r+b")
     restrict_mode(path, 0o600)
-    handle.seek(0)
-    if handle.read(1) == b"":
-        handle.write(b"0")
-        handle.flush()
     try:
         if os.name == "nt":
             import msvcrt
@@ -417,7 +440,7 @@ def accounts_command(args: argparse.Namespace) -> int:
 
 def init_state(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path) as db:
+    with sqlite_connection(path) as db:
         db.executescript(
             """
             CREATE TABLE IF NOT EXISTS seen_posts (
@@ -446,7 +469,7 @@ def next_account_batch(
     if not accounts:
         return [], 0
     init_state(state_db)
-    with sqlite3.connect(state_db) as db:
+    with sqlite_connection(state_db) as db:
         row = db.execute("SELECT value FROM scan_meta WHERE key='account_cursor'").fetchone()
     cursor = int(row[0]) if row else 0
     size = max(1, min(int(count), len(accounts)))
@@ -456,7 +479,7 @@ def next_account_batch(
 
 def reset_account_cursor(state_db: Path) -> None:
     init_state(state_db)
-    with sqlite3.connect(state_db) as db:
+    with sqlite_connection(state_db) as db:
         db.execute(
             "INSERT INTO scan_meta(key,value) VALUES('account_cursor','0') "
             "ON CONFLICT(key) DO UPDATE SET value='0'"
@@ -466,7 +489,7 @@ def reset_account_cursor(state_db: Path) -> None:
 
 def advance_account_cursor(state_db: Path, cursor: int, amount: int) -> int:
     next_cursor = cursor + amount
-    with sqlite3.connect(state_db) as db:
+    with sqlite_connection(state_db) as db:
         db.execute(
             "INSERT INTO scan_meta(key,value) VALUES('account_cursor',?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -953,7 +976,7 @@ async def collect(
 
     fetched = await asyncio.gather(*(fetch_one(account) for account in selected))
 
-    with sqlite3.connect(paths.state_db) as db, posts_path.open("w", encoding="utf-8") as out:
+    with sqlite_connection(paths.state_db) as db, posts_path.open("w", encoding="utf-8") as out:
         for username, posts, error in fetched:
             if error:
                 errors.append(error)
@@ -1076,7 +1099,7 @@ async def collect_registry_search(
     init_state(paths.state_db)
 
     with (
-        sqlite3.connect(paths.state_db) as db,
+        sqlite_connection(paths.state_db) as db,
         posts_staging.open("w", encoding="utf-8") as out,
         new_posts_staging.open("w", encoding="utf-8") as new_out,
     ):
@@ -1534,7 +1557,7 @@ def health_command(args: argparse.Namespace) -> int:
     if not paths.state_db.exists():
         print("No scan state yet.")
         return 2
-    with sqlite3.connect(paths.state_db) as db:
+    with sqlite_connection(paths.state_db) as db:
         db.row_factory = sqlite3.Row
         rows = [dict(r) for r in db.execute(
             "SELECT username,last_success_at,last_error FROM account_health ORDER BY username COLLATE NOCASE"
