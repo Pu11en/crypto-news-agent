@@ -107,6 +107,8 @@ python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 -
 
 This full-registry scan includes every enabled account in bounded batched X search queries. It publishes `combined.jsonl` with all eligible current-run posts (`is_new` marks novelty), `new.jsonl` with unseen posts only, and a registry manifest with eligible/new/previously-seen plus enabled/queried/unqueried totals. A successful query pass is not a claim of complete X coverage. Use `show --scope all --limit 100` to display the current scrape. Do not overlap scans.
 
+To start Accounts with no prior scrape or deduplication history while keeping the X login, registry, configuration, and runtime, run `python scripts/run.py history-reset --yes` before the next scan.
+
 Inspect the latest output with:
 
 ```bash

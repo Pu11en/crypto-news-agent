@@ -594,6 +594,30 @@ def auth_remove_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def history_reset_command(args: argparse.Namespace) -> int:
+    if not args.yes:
+        raise RuntimeError("history-reset requires --yes")
+    paths = app_paths(args.home)
+    secure_runtime(paths)
+    with scan_process_lock(paths.scan_lock):
+        shutil.rmtree(paths.output, ignore_errors=True)
+        paths.output.mkdir(parents=True, exist_ok=True, mode=0o700)
+        restrict_mode(paths.output, 0o700)
+        for candidate in (
+            paths.state_db,
+            Path(str(paths.state_db) + "-wal"),
+            Path(str(paths.state_db) + "-shm"),
+        ):
+            candidate.unlink(missing_ok=True)
+    print(json.dumps({
+        "history_reset": True,
+        "removed": ["saved_outputs", "deduplication_state", "account_health", "rotation_cursor"],
+        "preserved": ["x_session", "account_registry", "configuration", "runtime"],
+        "profile": str(paths.root),
+    }, indent=2))
+    return 0
+
+
 async def auth_stats(paths: Paths, verify_live: bool = False) -> dict[str, Any]:
     try:
         from twscrape import API
@@ -1456,6 +1480,10 @@ def parser() -> argparse.ArgumentParser:
     auth_remove = sub.add_parser("auth-remove", help="delete all locally stored X sessions")
     auth_remove.add_argument("--yes", action="store_true", help="confirm local session deletion")
     auth_remove.set_defaults(func=auth_remove_command)
+
+    history_reset = sub.add_parser("history-reset", help="clear Accounts outputs and deduplication while preserving setup")
+    history_reset.add_argument("--yes", action="store_true", help="confirm Accounts history deletion")
+    history_reset.set_defaults(func=history_reset_command)
 
     doctor = sub.add_parser("doctor", help="check installation and authentication readiness")
     doctor.add_argument("--live-auth", action="store_true", help="verify cookies with one authenticated X lookup")

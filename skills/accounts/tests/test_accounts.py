@@ -566,6 +566,22 @@ class AccountsSkillTests(unittest.TestCase):
             self.assertEqual(0, scan.auth_remove_command(SimpleNamespace(home=tmp, yes=True)))
             self.assertFalse(paths.session_db.exists())
 
+    def test_history_reset_preserves_setup_and_session(self):
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()):
+            scan.init_command(SimpleNamespace(home=tmp, force=False, acknowledge_x_terms_risk=True))
+            paths = scan.app_paths(tmp)
+            paths.session_db.write_bytes(b"session")
+            paths.state_db.write_bytes(b"state")
+            (paths.output / "latest.json").write_text("{}")
+            config_before = paths.config.read_bytes()
+            accounts_before = paths.accounts.read_bytes()
+            self.assertEqual(0, scan.history_reset_command(SimpleNamespace(home=tmp, yes=True)))
+            self.assertEqual(b"session", paths.session_db.read_bytes())
+            self.assertEqual(config_before, paths.config.read_bytes())
+            self.assertEqual(accounts_before, paths.accounts.read_bytes())
+            self.assertFalse(paths.state_db.exists())
+            self.assertEqual([], list(paths.output.iterdir()))
+
     def test_cycle_advances_accounts_and_publishes_latest(self):
         async def ready_session(paths):
             return {"accounts": 1, "active_accounts": 1}

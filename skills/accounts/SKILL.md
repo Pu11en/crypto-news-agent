@@ -71,6 +71,7 @@ python scripts/run.py scan --account lookonchain --hours 24 --limit 20
 python scripts/run.py cycle --hours 24 --limit 20 --max-runtime-seconds 43200  # legacy slow mode
 python scripts/run.py latest
 python scripts/run.py health
+python scripts/run.py history-reset --yes  # clear outputs/dedup only; preserve setup and X session
 python scripts/run.py test
 python scripts/run.py auth-remove --yes
 ```
