@@ -12,7 +12,7 @@ Clone or open this repository in Claude Code, Codex, or another local coding age
 Install and validate the crypto-signal-scan Agent Skill from this repository.
 First read skills/crypto-signal-scan/references/installer-agent-prompt.md and follow it exactly.
 Guide me through setup with one multiple-choice question at a time.
-Never ask me to paste X cookies into chat. Pause while I enter them into the hidden local auth-add terminal prompt.
+Never ask me to paste X cookies into chat. Have me copy the x.com DevTools cookie table locally and reply only “copied,” then use auth-add --clipboard; use the hidden terminal prompt only as fallback.
 Do not finish until doctor --live-auth passes, a one-account live scan succeeds, the duplicate-suppression check is complete, and the bundled tests pass.
 After setup, show me the single command I should run each day and explain retry_after without claiming X scraping is permanently reliable.
 ```
@@ -48,18 +48,18 @@ The first `run.py` invocation creates an isolated Python environment and install
 2. Open browser Developer Tools.
 3. In Chrome, Chromium, or Edge, open **Application → Cookies → https://x.com**.
 4. In Firefox, open **Storage → Cookies → https://x.com**.
-5. Find the cookies named `auth_token` and `ct0`.
-6. Do not paste them into Claude, Codex, ChatGPT, GitHub, screenshots, shell arguments, or project files.
-7. Open a separate local terminal, `cd` to the installed skill directory, and run:
+5. Click inside the cookie grid and copy the whole table to the local clipboard.
+6. Do not paste it into Claude, Codex, ChatGPT, GitHub, screenshots, shell arguments, or project files. Tell the local setup agent only **“copied.”**
+7. The setup agent runs:
 
    ```bash
-   python scripts/run.py auth-add
+   python scripts/run.py auth-add --clipboard
    ```
 
-   Do not run this through a noninteractive agent shell; it deliberately fails closed there.
-8. Paste the `auth_token` value into the first hidden prompt and the `ct0` value into the second hidden prompt. Press Enter after each. Hidden input does not appear on screen.
+   The command extracts only `auth_token` and `ct0`, stores them privately, clears the clipboard, and prints no values.
+8. If clipboard access is unavailable, open a separate terminal and run `python scripts/run.py auth-add`; enter only the two values in its hidden prompts.
 
-If cookies are ever pasted into chat or committed to a repository, treat that session as exposed: log out of X to invalidate it, log back in, and enter the newly generated values only through `auth-add`.
+If cookies are ever pasted into chat or committed to a repository, treat that session as exposed: log out of X to invalidate it, log back in, and use a newly generated session through `auth-add --clipboard` or hidden `auth-add`.
 
 ## Verify the installation
 

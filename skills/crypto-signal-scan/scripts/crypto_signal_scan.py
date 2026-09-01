@@ -9,10 +9,12 @@ import csv
 import getpass
 import json
 import os
+import platform
 import re
 import shutil
 import sqlite3
 import stat
+import subprocess
 import sys
 import time
 import uuid
@@ -398,33 +400,107 @@ def parse_cookie_header(raw: str) -> str:
     return f"auth_token={pieces['auth_token']}; ct0={pieces['ct0']}"
 
 
+def parse_browser_cookie_table(raw: str) -> str:
+    values: dict[str, str] = {}
+    for line in raw.splitlines():
+        columns = line.split("\t")
+        if len(columns) >= 2 and columns[0].strip() in {"auth_token", "ct0"}:
+            values[columns[0].strip()] = columns[1].strip()
+    if not values:
+        for match in re.finditer(r"(?m)^(auth_token|ct0)\s+([^\s]+)", raw):
+            values[match.group(1)] = match.group(2)
+    if not values.get("auth_token") or not values.get("ct0"):
+        raise RuntimeError("clipboard does not contain copied x.com auth_token and ct0 cookie rows")
+    return f"auth_token={values['auth_token']}; ct0={values['ct0']}"
+
+
+def clipboard_text() -> str:
+    system = platform.system()
+    commands: list[list[str]]
+    if system == "Darwin":
+        commands = [["pbpaste"]]
+    elif system == "Windows":
+        commands = [["powershell.exe", "-NoProfile", "-Command", "Get-Clipboard -Raw"]]
+    else:
+        commands = [
+            ["wl-paste", "--no-newline"],
+            ["xclip", "-selection", "clipboard", "-o"],
+            ["xsel", "--clipboard", "--output"],
+        ]
+    for command in commands:
+        if shutil.which(command[0]):
+            result = subprocess.run(command, capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout:
+                return result.stdout
+    try:
+        import tkinter
+        root = tkinter.Tk()
+        root.withdraw()
+        value = root.clipboard_get()
+        root.destroy()
+        if value:
+            return value
+    except Exception:
+        pass
+    raise RuntimeError(
+        "could not read the local clipboard; use auth-add in a separate interactive terminal instead"
+    )
+
+
+def clear_clipboard() -> None:
+    system = platform.system()
+    commands = {
+        "Darwin": [["pbcopy"]],
+        "Windows": [["powershell.exe", "-NoProfile", "-Command", "Set-Clipboard -Value ''"]],
+    }.get(system, [["wl-copy", "--clear"], ["xclip", "-selection", "clipboard"]])
+    for command in commands:
+        if shutil.which(command[0]):
+            subprocess.run(command, input="", text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+    try:
+        import tkinter
+        root = tkinter.Tk()
+        root.withdraw()
+        root.clipboard_clear()
+        root.update()
+        root.destroy()
+    except Exception:
+        pass
+
+
 def auth_add_command(args: argparse.Namespace) -> int:
     paths = app_paths(args.home)
     secure_runtime(paths)
     load_config(paths)
-    if not sys.stdin.isatty() or not sys.stderr.isatty():
-        raise RuntimeError(
-            "auth-add requires an interactive local terminal; open a terminal, cd to the skill directory, and run it there"
-        )
-    raw = getpass.getpass("Paste x.com cookie header or auth_token value (input hidden): ")
-    auth_token = None
-    if "auth_token=" in raw and "ct0=" in raw:
-        cookie_header = parse_cookie_header(raw)
-        ct0 = None
+    auth_token = ct0 = None
+    if getattr(args, "clipboard", False):
+        raw = clipboard_text()
+        try:
+            cookie_header = parse_browser_cookie_table(raw)
+        finally:
+            clear_clipboard()
     else:
-        candidate = raw.strip()
-        if candidate.startswith("auth_token="):
-            auth_token = candidate.split("=", 1)[1].strip()
-        elif "=" in candidate:
-            raise RuntimeError("enter a complete cookie header or the raw auth_token value")
+        if not sys.stdin.isatty() or not sys.stderr.isatty():
+            raise RuntimeError(
+                "auth-add requires an interactive local terminal; copy the x.com cookie table and use --clipboard, or open a terminal and run auth-add there"
+            )
+        raw = getpass.getpass("Paste x.com cookie header or auth_token value (input hidden): ")
+        if "auth_token=" in raw and "ct0=" in raw:
+            cookie_header = parse_cookie_header(raw)
         else:
-            auth_token = candidate
-        ct0 = getpass.getpass("Paste x.com ct0 value (input hidden): ").strip()
-        if ct0.startswith("ct0="):
-            ct0 = ct0.split("=", 1)[1].strip()
-        if not auth_token or not ct0:
-            raise RuntimeError("both auth_token and ct0 are required")
-        cookie_header = f"auth_token={auth_token}; ct0={ct0}"
+            candidate = raw.strip()
+            if candidate.startswith("auth_token="):
+                auth_token = candidate.split("=", 1)[1].strip()
+            elif "=" in candidate:
+                raise RuntimeError("enter a complete cookie header or the raw auth_token value")
+            else:
+                auth_token = candidate
+            ct0 = getpass.getpass("Paste x.com ct0 value (input hidden): ").strip()
+            if ct0.startswith("ct0="):
+                ct0 = ct0.split("=", 1)[1].strip()
+            if not auth_token or not ct0:
+                raise RuntimeError("both auth_token and ct0 are required")
+            cookie_header = f"auth_token={auth_token}; ct0={ct0}"
     with scan_process_lock(paths.scan_lock):
         asyncio.run(auth_add_async(paths, args.label, cookie_header))
     del raw, auth_token, cookie_header, ct0
@@ -1049,6 +1125,10 @@ def parser() -> argparse.ArgumentParser:
 
     auth = sub.add_parser("auth-add", help="securely register one local X cookie session")
     auth.add_argument("--label", default="main")
+    auth.add_argument(
+        "--clipboard", action="store_true",
+        help="read copied x.com DevTools cookie rows locally, keep only auth_token/ct0, then clear clipboard",
+    )
     auth.set_defaults(func=auth_add_command)
 
     auth_remove = sub.add_parser("auth-remove", help="delete all locally stored X sessions")

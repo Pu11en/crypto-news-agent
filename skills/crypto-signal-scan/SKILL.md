@@ -43,7 +43,7 @@ python scripts/run.py doctor --live-auth
 python scripts/run.py scan --hours 24  # scans the next account in the persistent round-robin
 ```
 
-`auth-add` requires a real interactive local terminal and fails closed otherwise. Have the user open a separate terminal and enter cookies there; never ask them to paste values into chat or an agent tool.
+Prefer `auth-add --clipboard`: have the user copy the whole x.com DevTools cookie table locally and say only “copied”; the command retains only `auth_token`/`ct0`, clears the clipboard, and prints nothing sensitive. If clipboard access is unavailable, `auth-add` requires a separate interactive terminal and fails closed otherwise. Never accept cookie values in chat or tool arguments.
 
 ## Natural-language invocation
 

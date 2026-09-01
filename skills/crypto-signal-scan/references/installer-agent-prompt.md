@@ -10,7 +10,7 @@ Install and validate `crypto-signal-scan` from this repository. It collects raw 
 
 - Read `skills/crypto-signal-scan/SKILL.md`, `references/setup-interview.md`, and `references/output-schema.md` before acting.
 - Never ask for or accept cookies in chat, tool arguments, environment variables, screenshots, or repository files.
-- Cookie entry requires a real interactive terminal. Do not run `auth-add` through a noninteractive agent shell. Give the user the exact installed skill path, ask them to open a separate terminal, `cd` there, run `python scripts/run.py auth-add`, and return only after it finishes.
+- Never receive cookie values in chat. The easiest safe flow is local clipboard import: the user copies the x.com DevTools cookie table and says only “copied”; run `python scripts/run.py auth-add --clipboard`. The script keeps only `auth_token`/`ct0`, clears the clipboard, and never prints them. If local clipboard access is unavailable, use the separate interactive-terminal fallback.
 - Use one legitimately controlled X session, direct networking, and no proxy rotation, identity rotation, CAPTCHA bypass, purchased cookies, or account farming.
 - Explain before initialization that twscrape uses X's unofficial interface, can break, and may be enforced against under X's terms. Continue only after explicit acceptance.
 
@@ -50,14 +50,15 @@ Tell the user:
 
 1. Sign in to `https://x.com` in Chrome/Chromium/Edge or Firefox.
 2. Chrome-family: Developer Tools → Application → Cookies → `https://x.com`. Firefox: Developer Tools → Storage → Cookies.
-3. Find `auth_token` and `ct0`.
-4. Open a separate local terminal and run, from the installed skill directory:
+3. Click inside the cookie table, select/copy the whole table to the local clipboard, and reply only **“copied”**. Never paste the table into chat.
+4. Immediately run from the installed skill directory:
 
    ```bash
-   python scripts/run.py auth-add
+   python scripts/run.py auth-add --clipboard
    ```
 
-5. Enter the two values only in the hidden prompts. Do not send them back to the agent.
+   This locally extracts only `auth_token` and `ct0`, stores them privately, clears the clipboard, and prints no cookie values.
+5. If clipboard access is unavailable, instruct the user to open a separate terminal and run `python scripts/run.py auth-add`, entering only the two values in hidden prompts.
 
 Then run:
 

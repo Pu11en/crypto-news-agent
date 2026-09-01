@@ -91,6 +91,33 @@ class CryptoSignalScanTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             scan.parse_cookie_header("ct0=xyz")
 
+    def test_browser_cookie_table_parser_keeps_only_required_values(self):
+        table = (
+            "__cf_bm\tignored-value\t.x.com\t/\n"
+            "auth_token\ttest-token\t.x.com\t/\n"
+            "ct0\ttest-csrf\t.x.com\t/\n"
+            "twid\tignored-user\t.x.com\t/\n"
+        )
+        self.assertEqual(
+            "auth_token=test-token; ct0=test-csrf",
+            scan.parse_browser_cookie_table(table),
+        )
+
+    def test_clipboard_auth_clears_clipboard_and_never_prompts(self):
+        table = "auth_token\ttest-token\t.x.com\t/\nct0\ttest-csrf\t.x.com\t/\n"
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            scan, "clipboard_text", return_value=table
+        ), patch.object(scan, "clear_clipboard") as cleared, patch.object(
+            scan.getpass, "getpass"
+        ) as prompt:
+            scan.init_command(SimpleNamespace(home=tmp, force=False, acknowledge_x_terms_risk=True))
+            self.assertEqual(
+                0,
+                scan.auth_add_command(SimpleNamespace(home=tmp, label="main", clipboard=True)),
+            )
+            cleared.assert_called_once()
+            prompt.assert_not_called()
+
     def test_auth_add_accepts_named_cookie_values_without_double_prefix(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(
             scan.getpass, "getpass", side_effect=["auth_token=abc", "ct0=xyz"]
