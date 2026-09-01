@@ -399,7 +399,7 @@ class AccountsSkillTests(unittest.TestCase):
                     self.assertEqual(20, manifest["duplicate_posts"])
                     self.assertEqual("", posts_path.read_text())
             self.assertEqual(25, len(run_dirs))
-            with sqlite3.connect(paths.state_db) as db:
+            with scan.sqlite_connection(paths.state_db) as db:
                 self.assertEqual(20, db.execute("SELECT COUNT(*) FROM seen_posts").fetchone()[0])
 
     def test_restart_preserves_deduplication_and_health(self):
@@ -417,7 +417,7 @@ class AccountsSkillTests(unittest.TestCase):
             self.assertEqual(0, manifest["new_posts"])
             self.assertEqual(1, manifest["duplicate_posts"])
             self.assertEqual("", posts_path.read_text())
-            with sqlite3.connect(restarted_paths.state_db) as db:
+            with scan.sqlite_connection(restarted_paths.state_db) as db:
                 health = db.execute(
                     "SELECT last_success_at,last_error FROM account_health WHERE username='lookonchain'"
                 ).fetchone()
@@ -441,7 +441,7 @@ class AccountsSkillTests(unittest.TestCase):
             self.assertEqual(["lookonchain"], manifest["reached_accounts"])
             self.assertEqual("whale_alert", manifest["failed_accounts"][0]["username"])
             self.assertEqual(1, len(posts_path.read_text().splitlines()))
-            with sqlite3.connect(paths.state_db) as db:
+            with scan.sqlite_connection(paths.state_db) as db:
                 failure = db.execute(
                     "SELECT last_error FROM account_health WHERE username='whale_alert'"
                 ).fetchone()[0]
