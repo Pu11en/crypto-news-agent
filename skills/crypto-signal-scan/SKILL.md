@@ -1,30 +1,23 @@
 ---
 name: crypto-signal-scan
-description: Collect fresh public X posts from a curated crypto account list into local JSONL and SQLite using one user-owned X browser session, without a paid API. Use whenever someone asks to scan crypto Twitter, scrape monitored crypto accounts, refresh a crypto feed, manage or validate a monitored-account registry, or export raw attributable posts. This skill only collects source posts; it does not rank stories, summarize claims, write scripts, or make videos.
+description: Collect fresh public X posts from a curated crypto account list using one user-owned browser session, preserve raw attributable outputs, and use the collected feed as creative source material. Use for crypto Twitter scans, monitored-account scrapes, raw exports, saved-result review, newsworthy story selection, news-show rundowns, anchor notes, summaries, scripts, or other creative work based on the scraped posts.
 compatibility: Python 3.10+ and a user-owned X account session are required. The bundled collector uses the unofficial twscrape interface and may be affected by X changes or terms enforcement.
 ---
 
 # Crypto Signal Scan
 
-Collect public posts from an explicit account registry. Preserve raw attribution and stop at collection.
+Collect public posts from an explicit account registry, preserve raw attribution, and then use those posts as source material for whatever the user asks next.
 
-## Boundary
+## What it does
 
-This skill may:
-- initialize a local collector;
-- securely register one user-owned X session from cookies;
-- list, add, disable, remove, and validate the syntax and uniqueness of monitored-account records;
-- collect recent public posts;
-- write normalized JSONL, a scan manifest, and local deduplication state;
-- report authentication, account, and collection health.
+- Initializes and maintains a local monitored-account collector.
+- Collects recent posts into auditable all-results and new-only JSONL files.
+- Shows, filters, searches, compares, curates, ranks, or summarizes the collected posts.
+- Builds news-show shortlists, rundowns, headlines, anchor notes, scripts, or other creative outputs when requested.
+- Keeps the exact author, timestamp, raw text, and X URL attached so creative work remains traceable.
+- Composes with other installed creative skills when the user asks to turn selected material into a video, deck, article, or other deliverable.
 
-This skill must not:
-- score, rank, curate, summarize, or interpret posts;
-- generate stories, scripts, videos, or trading advice;
-- collect private posts, DMs, or unnecessary profile data;
-- bypass CAPTCHA, challenges, rate limits, or account enforcement;
-- acquire accounts, rotate identities, or download public proxy lists;
-- print, echo, commit, or place cookie values in project files.
+Cookie privacy and X rate-limit handling are operational requirements, not restrictions on how collected posts may be used creatively.
 
 ## State check
 
@@ -52,15 +45,18 @@ For a vague request such as “run the crypto scrape,” do not guess or contact
 - **A. Full registry scan (recommended)** — attempt every enabled monitored account in batched searches and produce one combined output.
 - **B. Specific-account scan** — ask for one or more handles and scan only those.
 - **C. Show saved results** — display the latest collected posts without contacting X.
-- **D. Slow timeline cycle** — legacy one-account-at-a-time timeline collection; use only when explicitly chosen.
+- **D. Create from saved results** — curate stories, build a news-show shortlist or rundown, summarize, script, or perform another requested creative task using the latest scrape.
+- **E. Slow timeline cycle** — legacy one-account-at-a-time timeline collection; use only when explicitly chosen.
 
-If the user explicitly says “all monitored accounts,” “full registry,” names specific handles, or asks for saved results, skip the menu and use the stated mode.
+If the user explicitly says “all monitored accounts,” “full registry,” names specific handles, asks for saved results, or asks to create something from the collected posts, skip the menu and do it directly.
 
-For A use exactly one shell invocation: `python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial`. It performs live-auth preflight, scans, publishes output, and prints up to 10 raw posts. This intentionally avoids separate doctor/scan/latest/read permission prompts. For B run live-auth doctor plus targeted `scan --account ...`. For C run `show --limit 10` without contacting X. For D run `cycle` with an explicit runtime budget.
+For A use exactly one shell invocation: `python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial`. It performs live-auth preflight, scans, publishes output, and prints up to 10 raw posts. This intentionally avoids separate doctor/scan/latest/read permission prompts. For B run live-auth doctor plus targeted `scan --account ...`. For C run `show --limit 10` without contacting X. For D load all current-run posts with `show --scope all --limit 100`, then follow the user's creative request. For E run `cycle` with an explicit runtime budget.
 
 If the client says the installed skill or private runtime is outside the workspace, explain why and request one persistent, narrowly scoped permission for this skill's `python scripts/run.py` commands and runtime directory. Do not repeatedly request one-time approval command by command, and do not request blanket access when the client supports a narrower remembered rule.
 
-After collection, show status plus up to 10 eligible posts from the current run verbatim as author, UTC time, text, exact X URL, and new/previously-seen status. `combined.jsonl` is all eligible current-run posts; `new.jsonl` is only globally new posts. If the user says “show all,” run `python scripts/run.py show --scope all --limit 100`; “show new” uses `--scope new`. Render each post's text in a fenced code block (or escape Markdown dollar signs) so symbols such as `$HYPE` and `$35` remain exact. Do not summarize or rank. Always report eligible/new/previously-seen totals and enabled/queried/unqueried account counts; distinguish no eligible posts, rate limiting, and authentication failure; give exact `retry_after` when present.
+After collection, show status plus up to 10 eligible posts from the current run with author, UTC time, text, X URL, and new/previously-seen status. `combined.jsonl` is all eligible current-run posts; `new.jsonl` is only globally new posts. “Show all” uses `python scripts/run.py show --scope all --limit 100`; “show new” uses `--scope new`. Render raw post text in fenced code blocks so symbols such as `$HYPE` and `$35` remain intact.
+
+From that point on, treat the feed like normal creative source material. Follow the user's request directly: choose the most newsworthy items, explain why they work, group related posts, write a rundown, draft anchor copy, summarize, brainstorm angles, or create a script. Do not refuse merely because the request involves judgment, ranking, curation, or creative transformation. Keep source links alongside selected material so the user can trace it.
 
 ## Common operations
 

@@ -2,7 +2,7 @@
 
 ## Standalone zero-cost X collector: Crypto Signal Scan
 
-This repository includes [`crypto-signal-scan`](skills/crypto-signal-scan/), a portable Agent Skill that uses one user-owned X browser session to collect raw public posts from a bundled 77-account crypto registry without a paid API.
+This repository includes [`crypto-signal-scan`](skills/crypto-signal-scan/), a portable Agent Skill that uses one user-owned X browser session to collect public posts from a bundled 77-account crypto registry without a paid API, then makes that feed available for story selection, rundowns, scripts, and other creative work.
 
 **Give this repository to Claude Code, Codex, or another local coding agent and send it:**
 
@@ -27,7 +27,7 @@ From the installed `crypto-signal-scan` skill directory:
 python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial
 ```
 
-Normal scans persistently rotate through one account at a time, suppress duplicate post IDs, and print a `retry_after` time when X rate-limits the session. Cookie values must never be pasted into agent chat. The interface is unofficial and cannot be guaranteed permanently stable or authorized by X.
+Full scans query every enabled account, preserve all eligible current-run posts, mark which ones are new, and print a `retry_after` time when X rate-limits the session. The resulting feed can be used directly for curation and creative production. Cookie values stay in the local session store rather than agent chat. The interface is unofficial and can change when X changes its web interface.
 
 ---
 

@@ -115,7 +115,7 @@ python scripts/run.py auth-remove --yes
 
 ## Deterministic scrape choice
 
-For a vague scrape request, the skill must ask one question before contacting X: A. full registry (recommended), B. specific accounts, C. show saved results, or D. slow legacy timeline cycle. Explicit “all monitored accounts” selects A without another question.
+For a vague scrape request, the skill asks one question before contacting X: A. full registry (recommended), B. specific accounts, C. show saved results, D. create from saved results, or E. slow legacy timeline cycle. Explicit “all monitored accounts” selects A without another question.
 
 ## New-session natural-language activation test
 
@@ -123,7 +123,11 @@ After setup and validation, tell the user to close this agent session, start a n
 
 > Scan my monitored crypto accounts now and show me the new raw posts with author, time, text, and X link.
 
-The new agent should automatically load this skill, run live-auth doctor, recognize that “monitored accounts” means the full-registry mode, execute `scan-all`, report registry coverage, and display up to 10 raw posts plus the manifest/output paths. If the client does not auto-load it, verify the client skill directory and restart once; direct script operation remains available.
+The new agent should automatically load this skill, recognize that “monitored accounts” means the full-registry mode, execute `scan-all`, report registry coverage, and display up to 10 posts plus the output paths. Then test the creative handoff by saying:
+
+> Look through all of those posts and pick the strongest ones for a crypto news show.
+
+The agent should load all saved results and produce the requested shortlist instead of refusing because selection, ranking, summarization, or creative use is involved. If the client does not auto-load the skill, verify the client skill directory and restart once; direct script operation remains available.
 
 ## Completion report
 

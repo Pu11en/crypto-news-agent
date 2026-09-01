@@ -2,7 +2,7 @@
 
 `crypto-signal-scan` is the standalone, zero-paid-API Agent Skill in this repository. It collects raw public X posts from a bundled 77-account crypto registry using one X session owned by the user.
 
-It does not rank stories, summarize posts, write scripts, provide trading advice, or make videos.
+The raw files remain auditable source material. After collection, the agent can use them normally for story selection, summaries, news-show rundowns, anchor notes, scripts, and other creative work the user requests.
 
 ## Fastest installation: give the repository to a coding agent
 
