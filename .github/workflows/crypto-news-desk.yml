@@ -1,16 +1,16 @@
-name: crypto-signal-scan
+name: crypto-news-desk
 
 on:
   push:
     paths:
-      - 'skills/crypto-signal-scan/**'
-      - 'dist/crypto-signal-scan.skill'
-      - '.github/workflows/crypto-signal-scan.yml'
+      - 'skills/crypto-news-desk/**'
+      - 'dist/crypto-news-desk.skill'
+      - '.github/workflows/crypto-news-desk.yml'
   pull_request:
     paths:
-      - 'skills/crypto-signal-scan/**'
-      - 'dist/crypto-signal-scan.skill'
-      - '.github/workflows/crypto-signal-scan.yml'
+      - 'skills/crypto-news-desk/**'
+      - 'dist/crypto-news-desk.skill'
+      - '.github/workflows/crypto-news-desk.yml'
 
 permissions:
   contents: read
@@ -35,12 +35,12 @@ jobs:
       - name: Run isolated skill tests
         shell: bash
         env:
-          CRYPTO_SIGNAL_HOME: ${{ runner.temp }}/crypto-signal-scan
-        run: python skills/crypto-signal-scan/scripts/run.py test
+          CRYPTO_NEWS_DESK_HOME: ${{ runner.temp }}/crypto-news-desk
+        run: python skills/crypto-news-desk/scripts/run.py test
       - name: Verify pre-auth doctor
         shell: bash
         env:
-          CRYPTO_SIGNAL_HOME: ${{ runner.temp }}/crypto-signal-doctor
+          CRYPTO_NEWS_DESK_HOME: ${{ runner.temp }}/crypto-signal-doctor
         run: |
-          python skills/crypto-signal-scan/scripts/run.py init --acknowledge-x-terms-risk
-          python skills/crypto-signal-scan/scripts/run.py doctor
+          python skills/crypto-news-desk/scripts/run.py init --acknowledge-x-terms-risk
+          python skills/crypto-news-desk/scripts/run.py doctor

@@ -1,10 +1,10 @@
-# Crypto Signal Scan build proof
+# Crypto News Desk build proof
 
 **Build state:** complete and live-validated on 2026-08-31 with one user-owned X cookie session.
 
 ## Implemented
 
-- Valid Agent Skill at `skills/crypto-signal-scan/`.
+- Valid Agent Skill at `skills/crypto-news-desk/`.
 - Pinned `twscrape==0.20.1` isolated runtime bootstrap.
 - Owner-only runtime directory and session/state SQLite permissions.
 - Hidden local cookie entry accepting either a cookie header or separate `auth_token` and `ct0` values.
@@ -14,7 +14,7 @@
 - Default policy keeps originals and quote posts while excluding replies and reposts.
 - Normalized JSONL, manifest, SQLite deduplication, account health, partial-failure reporting, exact source URLs, and structured retryable rate-limit errors with the earliest known UTC retry time.
 - One-question-at-a-time setup interview and portable installer-agent prompt.
-- Packaged artifact at `dist/crypto-signal-scan.skill`.
+- Packaged artifact at `dist/crypto-news-desk.skill`.
 
 ## Automated evidence
 
@@ -29,7 +29,7 @@
 - During live proof, `doctor --live-auth` reported one active verified X session with private Unix modes. The corrected `scan-all` completed 26 one-page search batches covering all 76 enabled accounts with zero unqueried. A later all-output proof preserved 86 eligible current-run records in `combined.jsonl`, marked 3 `is_new: true` and 83 `is_new: false`, and wrote exactly the 3 unseen records to `new.jsonl`.
 - Independent re-review found no remaining blocker after the repeatability changes and separately confirmed adapter classification, single-account rotation, cross-process locking, minimum retry selection, manifest schema, one-session enforcement, and package/source parity.
 - An independent brand-new Harness session triggered the skill from “Run the crypto/finance news scrape,” presented the deterministic mode menu, completed a 76/76 full-registry pass, emitted one new post, suppressed 85 duplicates, and displayed the raw author/time/text/link. Its two outside-workspace approval prompts motivated the single-command `--show --allow-partial` UX and persistent narrow-permission guidance.
-- Three early prompt evaluations scored 100% with the skill versus 66.7% without it. Later real-session feedback showed that the collection-only boundary made the feed unusable for creative follow-up, so that restriction was removed while raw outputs remained intact. A fresh saved-results evaluation then directly selected 10 strong news-show candidates from all 87 posts, explained why each worked, linked every source, and proposed a rundown without contacting X. Static review of the earlier collector eval: `skills/crypto-signal-scan-workspace/iteration-1/review.html`.
+- Three early prompt evaluations scored 100% with the skill versus 66.7% without it. Later real-session feedback showed that the collection-only boundary made the feed unusable for creative follow-up, so that restriction was removed while raw outputs remained intact. A fresh saved-results evaluation then directly selected 10 strong news-show candidates from all 87 posts, explained why each worked, linked every source, and proposed a rundown without contacting X. The obsolete collection-only evaluation artifacts were removed during the product rename.
 
 ## Live proof
 

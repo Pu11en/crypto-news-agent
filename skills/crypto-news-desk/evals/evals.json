@@ -1,16 +1,16 @@
 {
-  "skill_name": "crypto-signal-scan",
+  "skill_name": "crypto-news-desk",
   "evals": [
     {
       "id": 1,
       "prompt": "Set up a completely free crypto X scanner on this computer using the bundled accounts and no paid API. Ask me whatever choices you need, but keep it easy.",
-      "expected_output": "The agent begins the one-question-at-a-time setup interview, keeps credentials out of chat, states the unofficial-interface limitation, and stays within raw collection.",
+      "expected_output": "The agent begins the one-question-at-a-time setup interview, keeps credentials out of chat, states the unofficial-interface limitation, and explains that the resulting desk supports both collection and creative use.",
       "files": [],
       "assertions": [
         "Asks exactly one multiple-choice question at a time and recommends option A",
         "Does not ask the user to paste cookies or credentials into chat",
         "Does not falsely promise permanent reliability for unofficial free X collection",
-        "Keeps scope to raw post collection without story ranking or scripts"
+        "Explains that collected posts can feed story selection, rundowns, summaries, or scripts"
       ]
     },
     {
@@ -28,13 +28,13 @@
     {
       "id": 3,
       "prompt": "Scan crypto Twitter, choose the three biggest stories, and write a TikTok script for me.",
-      "expected_output": "The skill permits raw collection but routes curation and scriptwriting elsewhere without fabricating scan results or requesting credentials in chat.",
+      "expected_output": "The skill performs the collection, chooses the strongest stories from the actual results, and writes the requested script with source links.",
       "files": [],
       "assertions": [
-        "Allows raw collection but clearly excludes story ranking and scriptwriting from this skill",
-        "Routes curation and scriptwriting to separate capabilities",
-        "Does not fabricate scan results when no authenticated X session exists",
-        "Does not request credentials in chat"
+        "Runs or loads a real scrape rather than inventing stories",
+        "Selects and explains the strongest collected stories",
+        "Writes the requested TikTok script",
+        "Keeps exact source links attached to the creative output"
       ]
     }
   ]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Free, local, raw X post collection for the crypto-signal-scan skill."""
+"""Local X collection and creative source feed for Crypto News Desk."""
 
 from __future__ import annotations
 
@@ -27,7 +27,8 @@ from typing import Any, AsyncIterator, Protocol
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_ACCOUNTS = SKILL_DIR / "assets" / "accounts.csv"
-APP_NAME = "crypto-signal-scan"
+APP_NAME = "crypto-news-desk"
+LEGACY_APP_NAME = "crypto-signal-scan"
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 
 
@@ -42,15 +43,42 @@ class Paths:
     output: Path
 
 
-def app_paths(home: str | None = None) -> Paths:
-    if home:
-        root = Path(home).expanduser()
-    elif os.environ.get("CRYPTO_SIGNAL_HOME"):
-        root = Path(os.environ["CRYPTO_SIGNAL_HOME"]).expanduser()
-    elif os.name == "nt":
-        root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / APP_NAME
+def rewrite_legacy_output_paths(preferred: Path, legacy: Path) -> None:
+    output = preferred / "output"
+    if not output.exists():
+        return
+    old = str(legacy)
+    new = str(preferred)
+    for path in output.rglob("*.json"):
+        text = path.read_text(encoding="utf-8")
+        if old in text:
+            path.write_text(text.replace(old, new), encoding="utf-8")
+
+
+def migrate_legacy_root(preferred: Path, legacy: Path) -> Path:
+    if legacy.exists() and not preferred.exists():
+        try:
+            legacy.rename(preferred)
+        except OSError:
+            return legacy
+    rewrite_legacy_output_paths(preferred, legacy)
+    return preferred
+
+
+def default_app_root() -> Path:
+    if os.environ.get("CRYPTO_NEWS_DESK_HOME"):
+        return Path(os.environ["CRYPTO_NEWS_DESK_HOME"]).expanduser()
+    if os.environ.get("CRYPTO_SIGNAL_HOME"):
+        return Path(os.environ["CRYPTO_SIGNAL_HOME"]).expanduser()
+    if os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
     else:
-        root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / APP_NAME
+        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    return migrate_legacy_root(base / APP_NAME, base / LEGACY_APP_NAME)
+
+
+def app_paths(home: str | None = None) -> Paths:
+    root = Path(home).expanduser() if home else default_app_root()
     return Paths(
         root=root,
         config=root / "config.json",
@@ -116,7 +144,7 @@ def scan_process_lock(path: Path):
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as exc:
         handle.close()
-        raise RuntimeError("another crypto-signal-scan process is already running") from exc
+        raise RuntimeError("another crypto-news-desk process is already running") from exc
     try:
         yield
     finally:

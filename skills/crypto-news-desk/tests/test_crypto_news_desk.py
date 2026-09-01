@@ -15,8 +15,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "crypto_signal_scan.py"
-spec = importlib.util.spec_from_file_location("crypto_signal_scan", SCRIPT)
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "crypto_news_desk.py"
+spec = importlib.util.spec_from_file_location("crypto_news_desk", SCRIPT)
 scan = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = scan
 assert spec.loader
@@ -77,7 +77,7 @@ def fake_post(post_id="100", username="lookonchain", *, reply=False, quote=False
     )
 
 
-class CryptoSignalScanTests(unittest.TestCase):
+class CryptoNewsDeskTests(unittest.TestCase):
     def test_bundled_registry_has_77_unique_accounts(self):
         rows = scan.load_accounts(scan.DEFAULT_ACCOUNTS)
         self.assertEqual(77, len(rows))
@@ -492,6 +492,21 @@ class CryptoSignalScanTests(unittest.TestCase):
             self.assertEqual(2, provider.max_active)
             self.assertEqual(2, manifest["concurrency"])
             self.assertEqual(8, len(manifest["reached_accounts"]))
+
+    def test_legacy_runtime_migrates_with_saved_output_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            legacy = base / "crypto-signal-scan"
+            preferred = base / "crypto-news-desk"
+            output = legacy / "output"
+            output.mkdir(parents=True)
+            old_manifest = legacy / "output" / "registry-scans" / "run" / "registry-manifest.json"
+            (output / "latest.json").write_text(json.dumps({"manifest": str(old_manifest)}))
+            root = scan.migrate_legacy_root(preferred, legacy)
+            self.assertEqual(preferred, root)
+            self.assertFalse(legacy.exists())
+            latest = json.loads((preferred / "output" / "latest.json").read_text())
+            self.assertEqual(str(preferred / "output" / "registry-scans" / "run" / "registry-manifest.json"), latest["manifest"])
 
     def test_non_tty_auth_fails_before_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:

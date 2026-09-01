@@ -1,10 +1,10 @@
 ---
-name: crypto-signal-scan
+name: crypto-news-desk
 description: Collect fresh public X posts from a curated crypto account list using one user-owned browser session, preserve raw attributable outputs, and use the collected feed as creative source material. Use for crypto Twitter scans, monitored-account scrapes, raw exports, saved-result review, newsworthy story selection, news-show rundowns, anchor notes, summaries, scripts, or other creative work based on the scraped posts.
 compatibility: Python 3.10+ and a user-owned X account session are required. The bundled collector uses the unofficial twscrape interface and may be affected by X changes or terms enforcement.
 ---
 
-# Crypto Signal Scan
+# Crypto News Desk
 
 Collect public posts from an explicit account registry, preserve raw attribution, and then use those posts as source material for whatever the user asks next.
 
@@ -40,17 +40,9 @@ Prefer `auth-add --clipboard`: have the user copy the whole x.com DevTools cooki
 
 ## Natural-language invocation
 
-For a vague request such as “run the crypto scrape,” do not guess or contact X yet. Ask exactly one multiple-choice question:
+A natural request such as “run the crypto news desk,” “run the crypto scrape,” or “get me fresh crypto news” defaults to a full 24-hour registry scan. Do not make the user choose a mode first. Run exactly one shell invocation: `python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial`. It performs live-auth preflight, attempts every enabled monitored account, publishes output, and prints up to 10 posts.
 
-- **A. Full registry scan (recommended)** — attempt every enabled monitored account in batched searches and produce one combined output.
-- **B. Specific-account scan** — ask for one or more handles and scan only those.
-- **C. Show saved results** — display the latest collected posts without contacting X.
-- **D. Create from saved results** — curate stories, build a news-show shortlist or rundown, summarize, script, or perform another requested creative task using the latest scrape.
-- **E. Slow timeline cycle** — legacy one-account-at-a-time timeline collection; use only when explicitly chosen.
-
-If the user explicitly says “all monitored accounts,” “full registry,” names specific handles, asks for saved results, or asks to create something from the collected posts, skip the menu and do it directly.
-
-For A use exactly one shell invocation: `python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial`. It performs live-auth preflight, scans, publishes output, and prints up to 10 raw posts. This intentionally avoids separate doctor/scan/latest/read permission prompts. For B run live-auth doctor plus targeted `scan --account ...`. For C run `show --limit 10` without contacting X. For D load all current-run posts with `show --scope all --limit 100`, then follow the user's creative request. For E run `cycle` with an explicit runtime budget.
+Follow explicit requests directly: named handles use targeted `scan --account ...`; “show saved/latest” uses `show` without contacting X; “create from the latest results” loads all current-run posts with `show --scope all --limit 100` and completes the requested creative task; the slow `cycle` mode is used only when specifically requested.
 
 If the client says the installed skill or private runtime is outside the workspace, explain why and request one persistent, narrowly scoped permission for this skill's `python scripts/run.py` commands and runtime directory. Do not repeatedly request one-time approval command by command, and do not request blanket access when the client supports a narrower remembered rule.
 

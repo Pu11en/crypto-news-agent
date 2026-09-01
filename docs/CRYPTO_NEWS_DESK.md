@@ -1,6 +1,6 @@
-# Crypto Signal Scan
+# Crypto News Desk
 
-`crypto-signal-scan` is the standalone, zero-paid-API Agent Skill in this repository. It collects raw public X posts from a bundled 77-account crypto registry using one X session owned by the user.
+`crypto-news-desk` is the standalone, zero-paid-API Agent Skill in this repository. It collects raw public X posts from a bundled 77-account crypto registry using one X session owned by the user.
 
 The raw files remain auditable source material. After collection, the agent can use them normally for story selection, summaries, news-show rundowns, anchor notes, scripts, and other creative work the user requests.
 
@@ -9,15 +9,15 @@ The raw files remain auditable source material. After collection, the agent can 
 Clone or open this repository in Claude Code, Codex, or another local coding agent, then send the agent this prompt:
 
 ```text
-Install and validate the crypto-signal-scan Agent Skill from this repository.
-First read skills/crypto-signal-scan/references/installer-agent-prompt.md and follow it exactly.
+Install and validate the crypto-news-desk Agent Skill from this repository.
+First read skills/crypto-news-desk/references/installer-agent-prompt.md and follow it exactly.
 Guide me through setup with one multiple-choice question at a time.
 Never ask me to paste X cookies into chat. Have me copy the x.com DevTools cookie table locally and reply only “copied,” then use auth-add --clipboard; use the hidden terminal prompt only as fallback.
 Do not finish until doctor --live-auth passes, a one-account live scan succeeds, the duplicate-suppression check is complete, and the bundled tests pass.
 After setup, show me the single command I should run each day and explain retry_after without claiming X scraping is permanently reliable.
 ```
 
-The complete portable agent instructions are in [`skills/crypto-signal-scan/references/installer-agent-prompt.md`](../skills/crypto-signal-scan/references/installer-agent-prompt.md).
+The complete portable agent instructions are in [`skills/crypto-news-desk/references/installer-agent-prompt.md`](../skills/crypto-news-desk/references/installer-agent-prompt.md).
 
 ## Requirements
 
@@ -34,7 +34,7 @@ No paid X API, proxy list, account rotation, CAPTCHA bypass, or purchased sessio
 From the repository root:
 
 ```bash
-cd skills/crypto-signal-scan
+cd skills/crypto-news-desk
 python scripts/run.py init --acknowledge-x-terms-risk
 python scripts/run.py accounts validate
 python scripts/run.py doctor
@@ -144,12 +144,12 @@ Registry validation checks username syntax and case-insensitive uniqueness. It d
 
 ## Install from the packaged skill
 
-The release artifact is [`dist/crypto-signal-scan.skill`](../dist/crypto-signal-scan.skill). It is a ZIP-compatible Agent Skill package. An Agent Skills-compatible coding agent can extract or copy its `crypto-signal-scan/` directory into the client's documented local skill directory.
+The release artifact is [`dist/crypto-news-desk.skill`](../dist/crypto-news-desk.skill). It is a ZIP-compatible Agent Skill package. An Agent Skills-compatible coding agent can extract or copy its `crypto-news-desk/` directory into the client's documented local skill directory.
 
 Examples vary by client. Claude Code commonly uses:
 
 ```text
-~/.claude/skills/crypto-signal-scan/
+~/.claude/skills/crypto-news-desk/
 ```
 
 The installer agent must detect the client's supported location instead of assuming every client uses the same directory.
@@ -158,11 +158,11 @@ The installer agent must detect the client's supported location instead of assum
 
 Default runtime root:
 
-- Linux: `${XDG_DATA_HOME:-~/.local/share}/crypto-signal-scan`
-- macOS and other Unix-like systems: `${XDG_DATA_HOME:-~/.local/share}/crypto-signal-scan`
-- Windows: `%LOCALAPPDATA%\crypto-signal-scan`
+- Linux: `${XDG_DATA_HOME:-~/.local/share}/crypto-news-desk`
+- macOS and other Unix-like systems: `${XDG_DATA_HOME:-~/.local/share}/crypto-news-desk`
+- Windows: `%LOCALAPPDATA%\crypto-news-desk`
 
-The runtime contains configuration, the local account registry, SQLite deduplication/account-health state, output files, and the owner-only X session database. It must never be committed to Git.
+The runtime contains configuration, the local account registry, SQLite deduplication/account-health state, output files, and the owner-only X session database. Existing `crypto-signal-scan` installations migrate this private runtime automatically on first launch, preserving authentication and saved results. It must never be committed to Git.
 
 ## Important limitation
 

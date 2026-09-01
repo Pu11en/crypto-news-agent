@@ -1,27 +1,27 @@
 # crypto-news-agent
 
-## Standalone zero-cost X collector: Crypto Signal Scan
+## Crypto News Desk
 
-This repository includes [`crypto-signal-scan`](skills/crypto-signal-scan/), a portable Agent Skill that uses one user-owned X browser session to collect public posts from a bundled 77-account crypto registry without a paid API, then makes that feed available for story selection, rundowns, scripts, and other creative work.
+This repository includes [`crypto-news-desk`](skills/crypto-news-desk/), a portable Agent Skill that uses one user-owned X browser session to collect public posts from a bundled 77-account crypto registry without a paid API, then makes that feed available for story selection, rundowns, scripts, and other creative work.
 
 **Give this repository to Claude Code, Codex, or another local coding agent and send it:**
 
 ```text
-Install and validate the crypto-signal-scan Agent Skill from this repository.
-First read skills/crypto-signal-scan/references/installer-agent-prompt.md and follow it exactly.
+Install and validate the crypto-news-desk Agent Skill from this repository.
+First read skills/crypto-news-desk/references/installer-agent-prompt.md and follow it exactly.
 Guide me one question at a time, keep cookie entry in the hidden local auth-add prompt, prove a live scan and duplicate suppression, run the tests, then show me the everyday scan command.
 ```
 
 Start here:
 
-- **Complete setup and everyday-use guide:** [`docs/CRYPTO_SIGNAL_SCAN.md`](docs/CRYPTO_SIGNAL_SCAN.md)
-- **Full coding-agent installation prompt:** [`skills/crypto-signal-scan/references/installer-agent-prompt.md`](skills/crypto-signal-scan/references/installer-agent-prompt.md)
-- **Packaged Agent Skill:** [`dist/crypto-signal-scan.skill`](dist/crypto-signal-scan.skill)
-- **Bundled monitored accounts:** [`skills/crypto-signal-scan/assets/accounts.csv`](skills/crypto-signal-scan/assets/accounts.csv)
+- **Complete setup and everyday-use guide:** [`docs/CRYPTO_NEWS_DESK.md`](docs/CRYPTO_NEWS_DESK.md)
+- **Full coding-agent installation prompt:** [`skills/crypto-news-desk/references/installer-agent-prompt.md`](skills/crypto-news-desk/references/installer-agent-prompt.md)
+- **Packaged Agent Skill:** [`dist/crypto-news-desk.skill`](dist/crypto-news-desk.skill)
+- **Bundled monitored accounts:** [`skills/crypto-news-desk/assets/accounts.csv`](skills/crypto-news-desk/assets/accounts.csv)
 
 Daily command after installation:
 
-From the installed `crypto-signal-scan` skill directory:
+From the installed `crypto-news-desk` skill directory:
 
 ```bash
 python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial

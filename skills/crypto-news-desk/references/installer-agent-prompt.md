@@ -4,11 +4,11 @@ Give the prompt below to Claude Code, Codex, or another coding agent running loc
 
 ---
 
-Install and validate `crypto-signal-scan` from this repository. It collects raw public X posts from a bundled crypto account registry using exactly one user-owned X session and no paid API.
+Install and validate `crypto-news-desk` from this repository. It collects raw public X posts from a bundled crypto account registry using exactly one user-owned X session and no paid API.
 
 ## Non-negotiable safety
 
-- Read `skills/crypto-signal-scan/SKILL.md`, `references/setup-interview.md`, and `references/output-schema.md` before acting.
+- Read `skills/crypto-news-desk/SKILL.md`, `references/setup-interview.md`, and `references/output-schema.md` before acting.
 - Never ask for or accept cookies in chat, tool arguments, environment variables, screenshots, or repository files.
 - Never receive cookie values in chat. The easiest safe flow is local clipboard import: the user copies the x.com DevTools cookie table and says only “copied”; run `python scripts/run.py auth-add --clipboard`. The script keeps only `auth_token`/`ct0`, clears the clipboard, and never prints them. If local clipboard access is unavailable, use the separate interactive-terminal fallback.
 - Use one legitimately controlled X session, direct networking, and no proxy rotation, identity rotation, CAPTCHA bypass, purchased cookies, or account farming.
@@ -16,12 +16,12 @@ Install and validate `crypto-signal-scan` from this repository. It collects raw 
 
 ## Client permissions
 
-Before setup, explain that the installed skill and its private runtime live outside the project workspace, so the coding client may request permission. When supported, ask the user once to remember a narrowly scoped allow rule for this skill's `python scripts/run.py` commands, network access, and its `crypto-signal-scan` user-data directory. Do not trigger a chain of unexplained one-time prompts and do not request unrelated blanket shell access. In DeepSeek Harness, the user may select the session's Full Access preset instead; in Claude Code/Codex, use the client's persistent command/path allow mechanism.
+Before setup, explain that the installed skill and its private runtime live outside the project workspace, so the coding client may request permission. When supported, ask the user once to remember a narrowly scoped allow rule for this skill's `python scripts/run.py` commands, network access, and its `crypto-news-desk` user-data directory. Do not trigger a chain of unexplained one-time prompts and do not request unrelated blanket shell access. In DeepSeek Harness, the user may select the session's Full Access preset instead; in Claude Code/Codex, use the client's persistent command/path allow mechanism.
 
 ## Install
 
 1. Verify Python 3.10+ and local terminal access. On Debian/Ubuntu, install the matching `python3-venv` package if venv creation is unavailable.
-2. Copy `skills/crypto-signal-scan/` into the client's documented local skill directory, preserving all files. If the client snapshots skills at startup, tell the user a restart/new session may be required for natural-language skill activation. Direct script setup can continue now.
+2. Copy `skills/crypto-news-desk/` into the client's documented local skill directory, preserving all files. If the client snapshots skills at startup, tell the user a restart/new session may be required for natural-language skill activation. Direct script setup can continue now.
 3. From the installed skill directory run:
 
    ```bash
@@ -113,9 +113,9 @@ To delete the local X session physically:
 python scripts/run.py auth-remove --yes
 ```
 
-## Deterministic scrape choice
+## Everyday default
 
-For a vague scrape request, the skill asks one question before contacting X: A. full registry (recommended), B. specific accounts, C. show saved results, D. create from saved results, or E. slow legacy timeline cycle. Explicit “all monitored accounts” selects A without another question.
+A natural request such as “run the crypto news desk” or “run the crypto scrape” immediately runs the full 24-hour registry scan. Do not add a scrape-mode menu. Explicit account handles, saved-result requests, creative requests using the latest feed, and the slow legacy cycle override that default directly.
 
 ## New-session natural-language activation test
 
