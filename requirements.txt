@@ -1,8 +1,0 @@
-python-telegram-bot>=21.6,<22
-openai>=1.50
-sqlalchemy>=2.0
-requests>=2.31
-httpx>=0.27
-python-dotenv>=1.0
-reportlab>=4.2,<5
-pypdf>=5,<7

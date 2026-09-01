@@ -1,151 +1,65 @@
 # Twitter News
 
-## Accounts skill
+A small, portable Agent Skills toolkit for collecting public X posts with one user-owned browser session and using the saved feed for summaries, rankings, rundowns, scripts, and other creative work.
 
-This repository includes [`accounts`](skills/accounts/), the first Twitter News Agent Skill. It uses one user-owned X browser session to collect public posts from a bundled 77-account crypto registry without a paid API, then makes that feed available for story selection, rundowns, scripts, and other creative work. The planned next skill is `barron` for 12-hour finance and memecoin coverage; it remains unbuilt until `accounts` passes fresh end-to-end verification.
+No paid X API is required.
 
-**Give this repository to Claude Code, Codex, or another local coding agent and send it:**
+## Available skills
+
+- **`accounts` — available:** collects the previous 24 hours from every enabled account in the bundled crypto registry.
+- **`barron` — planned, not installed:** future 12-hour finance and memecoin coverage.
+
+Say **“Open Twitter News”** to display the menu. Say **“Run Accounts”** to run the available skill directly.
+
+## Give this repository to Claude Code
+
+Open an empty folder in Claude Code and paste:
 
 ```text
-Install and validate the accounts Agent Skill from this repository.
-First read skills/accounts/references/installer-agent-prompt.md and follow it exactly.
-Guide me one question at a time. Never request cookies in chat: use local auth-add --clipboard after I reply only “copied,” with the separate hidden-terminal prompt as fallback. Prove a live scan and duplicate suppression, run the tests, then show me the everyday scan command.
+Install and fully validate the Twitter News Accounts skill from:
+https://github.com/Pu11en/crypto-news-agent
+
+Clone the repository, then read skills/accounts/references/installer-agent-prompt.md and follow it exactly. Detect my operating system and Python command instead of assuming them. Guide me one question at a time. Never ask me to paste X cookies into chat; use the local clipboard flow after I reply only “copied,” with a separate interactive hidden terminal as fallback. Do not declare success until the installed skill is verified, doctor --live-auth passes, a live proof and duplicate check succeed, and all bundled tests pass. When finished, tell me to start a fresh Claude Code session and say “Open Twitter News.”
 ```
 
-Start here:
+The complete installer procedure is in [`skills/accounts/references/installer-agent-prompt.md`](skills/accounts/references/installer-agent-prompt.md).
 
-- **Complete setup and everyday-use guide:** [`docs/TWITTER_NEWS.md`](docs/TWITTER_NEWS.md)
-- **Full coding-agent installation prompt:** [`skills/accounts/references/installer-agent-prompt.md`](skills/accounts/references/installer-agent-prompt.md)
-- **Packaged Agent Skill:** [`dist/accounts.skill`](dist/accounts.skill)
-- **Bundled monitored accounts:** [`skills/accounts/assets/accounts.csv`](skills/accounts/assets/accounts.csv)
+## Direct Claude Code installation
 
-Claude Code global install from a cloned checkout: `mkdir -p ~/.claude/skills && python -m zipfile -e dist/accounts.skill ~/.claude/skills`, verify `~/.claude/skills/accounts/SKILL.md`, then start a fresh session.
-
-Daily command after installation:
-
-From the installed `accounts` skill directory:
+From a cloned checkout:
 
 ```bash
-python scripts/run.py scan-all --hours 24 --limit 20 --max-runtime-seconds 900 --show --allow-partial
+mkdir -p ~/.claude/skills
+python -m zipfile -e dist/accounts.skill ~/.claude/skills
+test -s ~/.claude/skills/accounts/SKILL.md
 ```
 
-Full scans query every enabled account, preserve all eligible current-run posts, mark which ones are new, and print a `retry_after` time when X rate-limits the session. The resulting feed can be used directly for curation and creative production. Cookie values stay in the local session store rather than agent chat. The interface is unofficial and can change when X changes its web interface.
+Use `python3` instead when that is the command providing Python 3.10+. Start a fresh Claude Code session after installation.
 
----
+## Everyday use
 
-The repository also contains the older Telegram crypto-news scraper and research agent, with an optional local script/video experimentation mode.
-
-## Product modes
-
-Set `BOT_MODE=scraper` for production. In this mode the bot:
-
-- Uses natural-language requests only; production registers no slash-command
-  handlers and clears Telegram's command menu at startup.
-- Ask for fresh crypto news to request a new scrape. The bot asks for a natural
-  language yes/no confirmation before spending Xquik credits.
-- Scrapes only the accounts in `accounts.txt`, always through Xquik and never
-  through direct X/Twitter access, broad X search, or alternate account lists.
-- Ask to show saved scrapes, open the latest research, inspect raw posts, or check
-  the Xquik credit balance.
-- Generates a validated, cached PDF with curated evidence and every raw post.
-- Lets users browse all raw posts and discuss the latest scrape with a grounded
-  research assistant.
-- Does not generate scripts automatically after a scrape. A user can explicitly
-  ask the grounded agent to draft and revise a script conversationally.
-- Does not register video uploads, captions, storyboards, rendering, `/done`, or
-  video callbacks.
-
-Set `BOT_MODE=full` only for local script/video experiments. It keeps the
-talking-notes and video pipeline available without changing production behavior.
-
-## How scripts are written
-
-Grounded in short-form video research:
-- ≤150 words for a ~60-second read (shorter is better)
-- Hook in the first 3–5 seconds — bold statement, question, or surprising stat
-- Structure: Hook → Setup → 3 core beats → Payoff/CTA
-- Written to be spoken aloud; cut filler ruthlessly
-
-Sources: [Copy Posse](https://copyposse.com/blog/this-simple-short-form-video-script-formula-has-generated-millions-of-views/),
-[Search Engine Journal](https://www.searchenginejournal.com/from-article-to-short-form-video-that-holds-attention/565238/),
-[Leadde](https://leadde.ai/blog/how-to-write-video-script-templates-examples).
-
-## Architecture
-
-```
-Telegram ⇆ Bot (async, single process)
-              ├── handlers/
-              │     ├── news.py     — /news flow (scrape → curate → script)
-              │     ├── chat.py     — general chat + script refinement
-              │     ├── commands.py — /done, /cancel
-              │     └── session.py  — per-user state machine
-              ├── xquik.py          — Xquik scraper (twitter data)
-              ├── llm.py            — DeepSeek V4 Flash with z.ai GLM fallback
-              ├── prompts.py        — curation + script prompts
-              ├── db.py             — SQLite (tweets, stories, scripts, sessions)
-              ├── accounts.py       — account list loader
-              └── config.py         — env-based settings
+```text
+Open Twitter News.
+Run Accounts.
+Use my latest Accounts scrape and give me the top stories with source links.
 ```
 
-The exact production capability boundary and user flows are documented in [docs/PRODUCTION_AGENT.md](docs/PRODUCTION_AGENT.md).
+The default Accounts run attempts every enabled monitored account over the previous 24 hours. It preserves all eligible current-run posts, identifies globally new posts, reports queried and unqueried accounts, and keeps exact X links.
 
-## Local dev
+## Repository contents
 
-```bash
-# 1. Install deps
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-# 2. Set env vars (see .env.example)
-export DEEPSEEK_API_KEY=...
-export XQUIK_API_KEY=...
-export TELEGRAM_BOT_TOKEN=...
-export ALLOWED_USER_IDS=<your-telegram-id>
-export BOT_MODE=scraper         # production behavior; use full for local video tests
-export DB_PATH=./data/agent.db   # local; /data/agent.db in prod
-
-# 3. Run
-python src/bot.py
+```text
+.github/workflows/accounts.yml     Cross-platform release tests
+dist/accounts.skill                Installable Agent Skill package
+docs/TWITTER_NEWS.md               Complete user guide
+skills/accounts/                   Skill, collector, tests, registry, references
 ```
 
-Find your Telegram user ID by messaging [@userinfobot](https://t.me/userinfobot).
+## Requirements and limitations
 
-## Deploy to Railway
+- Python 3.10 or newer
+- A normal browser login to an X account the user controls
+- Local terminal access
+- Direct networking; no proxy or identity rotation
 
-1. Push this repo to GitHub.
-2. Railway → New Project → Deploy from GitHub → select the repo.
-3. Add a **volume** mounted at `/data` (this is where `agent.db` lives —
-   it survives redeploys).
-4. Set the env vars from `.env.example` in the Railway dashboard.
-5. Deploy. Watch logs for `Bot ready. Allowlist: (...)`.
-
-## Env vars
-
-| Var | Required | Default | Notes |
-|---|---|---|---|
-| `DEEPSEEK_API_KEY` | yes | — | DeepSeek API key; primary LLM provider |
-| `DEEPSEEK_BASE_URL` | no | `https://api.deepseek.com/v1` | OpenAI-compatible DeepSeek endpoint |
-| `DEEPSEEK_MODEL` | no | `deepseek-v4-flash` | primary model name |
-| `ZAI_API_KEY` | yes | — | z.ai GLM fallback key |
-| `ZAI_BASE_URL` | no | `https://api.z.ai/api/coding/paas/v4` | fallback endpoint |
-| `ZAI_MODEL` | no | `glm-5-turbo` | fallback model name |
-| `XQUIK_API_KEY` | yes | — | Xquik scraper key |
-| `SCRAPE_HOURS` | no | `24` | lookback window |
-| `MAX_TWEETS_PER_ACCOUNT` | no | `20` | per-account tweet cap |
-| `TELEGRAM_BOT_TOKEN` | yes | — | from [@BotFather](https://t.me/BotFather) |
-| `ALLOWED_USER_IDS` | yes | — | comma-separated Telegram IDs |
-| `BOT_MODE` | no | `full` | `scraper` for production; `full` for local video experiments |
-| `DB_PATH` | no | `/data/agent.db` | SQLite path |
-| `REPORT_DIR` | no | `/data/reports` | persistent generated PDF directory |
-| `REPORT_MAX_MB` | no | `45` | maximum PDF upload size |
-
-## Files
-
-```
-accounts.txt          — curated crypto accounts (username,tier,tags)
-requirements.txt
-.env.example          — env var template
-Dockerfile            — Railway deploy image
-railway.toml          — Railway service config
-src/                  — application code
-```
+The collector uses X's unofficial web interface. X may change it, expire cookies, challenge sessions, rate-limit requests, or return incomplete bounded results. The skill detects and reports these conditions but cannot guarantee permanent X availability or authorization.

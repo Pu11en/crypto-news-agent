@@ -1,9 +1,0 @@
-[build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
-
-[deploy]
-# Long-polling Telegram bot: no HTTP healthcheck. The image entrypoint performs
-# dependency checks before starting Python, and Railway monitors the process.
-restartPolicyType = "ALWAYS"
-restartPolicyMaxRetries = 10
